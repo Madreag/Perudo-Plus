@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dice Test - Verifying Number Positioning Fix</title>
+    <style>
+        body { margin: 0; background: #1a1a2e; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>Dice Number Positioning Test</h3>
+        <p>Testing: d3, d4, d6, d8, d10 (left to right)</p>
+        <p>d4 and d8 should now have properly sized and positioned numbers</p>
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        
+        const DICE_COLORS = {
+            'd3': 0xff6b6b,
+            'd4': 0x4ecdc4,
+            'd6': 0xffe66d,
+            'd8': 0x95e1d3,
+            'd10': 0xdda0dd
+        };
+        
+        function createNumberTexture(value, bgColor, dieType = 'd6') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            // Fill background with dice color
+            ctx.fillStyle = '#' + bgColor.toString(16).padStart(6, '0');
+            ctx.fillRect(0, 0, 128, 128);
+            
+            // Adjust font size and position based on die type
+            // For triangular faces (d4, d8), the UV mapping requires different positioning
+            let fontSize = 80;
+            let textX = 64;
+            let textY = 64;
+            
+            if (dieType === 'd4') {
+                // Tetrahedron has triangular faces
+                // The UV mapping places the visible triangle with vertices roughly at
+                // (0,0), (1,0), (0.5,1) - so center the number in the lower-middle area
+                fontSize = 40;
+                textX = 64;
+                textY = 45;
+            } else if (dieType === 'd8') {
+                // Octahedron has triangular faces - similar to d4
+                fontSize = 40;
+                textX = 64;
+                textY = 45;
+            } else if (dieType === 'd3') {
+                // Triangular prism - rectangular faces on sides, triangular on top/bottom
+                fontSize = 60;
+            }
+            
+            ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 4;
+            ctx.strokeText(value.toString(), textX, textY);
+            
+            ctx.fillStyle = 'white';
+            ctx.fillText(value.toString(), textX, textY);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+        
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+        
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+        camera.lookAt(0, 0, 0);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        scene.add(directionalLight);
+        
+        // Create dice
+        const diceTypes = ['d3', 'd4', 'd6', 'd8', 'd10'];
+        const positions = [-6, -3, 0, 3, 6];
+        
+        diceTypes.forEach((type, i) => {
+            let geometry;
+            switch (type) {
+                case 'd3':
+                    geometry = new THREE.CylinderGeometry(0.5, 0.5, 0.8, 3);
+                    break;
+                case 'd4':
+                    geometry = new THREE.TetrahedronGeometry(0.8);
+                    break;
+                case 'd6':
+                    geometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                    break;
+                case 'd8':
+                    geometry = new THREE.OctahedronGeometry(0.8);
+                    break;
+                case 'd10':
+                    geometry = new THREE.DodecahedronGeometry(0.6);
+                    break;
+            }
+            
+            const texture = createNumberTexture(i + 1, DICE_COLORS[type], type);
+            const material = new THREE.MeshStandardMaterial({
+                map: texture,
+                roughness: 0.3,
+                metalness: 0.1
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.x = positions[i];
+            mesh.position.y = 0.5;
+            scene.add(mesh);
+            
+            // Add label below each die
+            const labelDiv = document.createElement('div');
+            labelDiv.style.position = 'absolute';
+            labelDiv.style.color = 'white';
+            labelDiv.style.fontFamily = 'Arial';
+            labelDiv.style.fontSize = '14px';
+            labelDiv.textContent = type;
+            document.body.appendChild(labelDiv);
+            
+            // Update label position in animation loop
+            mesh.userData.label = labelDiv;
+        });
+        
+        // Animation
+        function animate() {
+            requestAnimationFrame(animate);
+            scene.children.forEach(child => {
+                if (child instanceof THREE.Mesh) {
+                    child.rotation.y += 0.01;
+                    child.rotation.x += 0.005;
+                    
+                    // Update label position
+                    if (child.userData.label) {
+                        const vector = child.position.clone();
+                        vector.y -= 1.5;
+                        vector.project(camera);
+                        const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-(vector.y * 0.5) + 0.5) * window.innerHeight;
+                        child.userData.label.style.left = x + 'px';
+                        child.userData.label.style.top = y + 'px';
+                    }
+                }
+            });
+            renderer.render(scene, camera);
+        }
+        animate();
+        
+        // Handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

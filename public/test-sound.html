@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Turn Sound</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+            color: white;
+        }
+        button {
+            padding: 20px 40px;
+            font-size: 18px;
+            cursor: pointer;
+            background: #4ecdc4;
+            border: none;
+            border-radius: 8px;
+            color: #1a1a2e;
+            margin: 10px;
+        }
+        button:hover {
+            background: #45b7aa;
+        }
+        h1 {
+            color: #4ecdc4;
+        }
+        p {
+            color: #aaa;
+            max-width: 500px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎲 Turn Sound Test</h1>
+    <p>Click the button below to test the calm soothing sound that plays when it's your turn in the game.</p>
+    <button onclick="playTurnSound()">Play Turn Sound</button>
+    <p id="status"></p>
+
+    <script>
+        function playTurnSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Create a gentle, soothing chime sound
+                const now = audioContext.currentTime;
+                
+                // First tone - soft bell-like sound
+                const osc1 = audioContext.createOscillator();
+                const gain1 = audioContext.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(523.25, now); // C5
+                gain1.gain.setValueAtTime(0, now);
+                gain1.gain.linearRampToValueAtTime(0.3, now + 0.05);
+                gain1.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+                osc1.connect(gain1);
+                gain1.connect(audioContext.destination);
+                osc1.start(now);
+                osc1.stop(now + 1.0);
+                
+                // Second tone - harmonious overtone
+                const osc2 = audioContext.createOscillator();
+                const gain2 = audioContext.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                gain2.gain.setValueAtTime(0, now + 0.1);
+                gain2.gain.linearRampToValueAtTime(0.2, now + 0.15);
+                gain2.gain.exponentialRampToValueAtTime(0.01, now + 1.1);
+                osc2.connect(gain2);
+                gain2.connect(audioContext.destination);
+                osc2.start(now + 0.1);
+                osc2.stop(now + 1.1);
+                
+                // Third tone - completing the chord
+                const osc3 = audioContext.createOscillator();
+                const gain3 = audioContext.createGain();
+                osc3.type = 'sine';
+                osc3.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                gain3.gain.setValueAtTime(0, now + 0.2);
+                gain3.gain.linearRampToValueAtTime(0.15, now + 0.25);
+                gain3.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+                osc3.connect(gain3);
+                gain3.connect(audioContext.destination);
+                osc3.start(now + 0.2);
+                osc3.stop(now + 1.2);
+                
+                document.getElementById('status').textContent = '✅ Sound played successfully!';
+            } catch (e) {
+                document.getElementById('status').textContent = '❌ Error: ' + e.message;
+                console.error('Could not play turn sound:', e);
+            }
+        }
+    </script>
+</body>
+</html>
