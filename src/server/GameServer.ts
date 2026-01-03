@@ -896,6 +896,21 @@ export class GameServer {
 
     this.clients.delete(clientId);
 
+    // Check if all players are disconnected during an active game
+    const allDisconnected = this.gameState.players.every(p => !p.isConnected);
+    const isActiveGame = this.gameState.phase !== 'lobby' && this.gameState.phase !== 'game_over';
+    
+    if (allDisconnected && isActiveGame) {
+      // Auto-pause the game when all players disconnect
+      // Store current phase so it can be resumed
+      this.gameState = {
+        ...this.gameState,
+        pausedFromPhase: this.gameState.phase,
+        phase: 'paused'
+      };
+      console.log('All players disconnected - game auto-paused from phase: ' + this.gameState.pausedFromPhase);
+    }
+
     this.broadcast({
       type: 'player_left',
       payload: {
