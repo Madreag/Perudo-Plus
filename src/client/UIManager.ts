@@ -37,6 +37,8 @@ export class UIManager {
   public onNewGame: (() => void) | null = null;
   public onPauseGame: (() => void) | null = null;
   public onResumeGame: (() => void) | null = null;
+  public onKickPlayer: ((playerId: string) => void) | null = null;
+  public onSelectSlot: ((slot: number | null) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -69,12 +71,39 @@ export class UIManager {
 
         <!-- Lobby Screen -->
         <div id="lobby-screen" class="screen">
-          <div class="panel lobby-panel">
-            <h2>Game Lobby</h2>
-            <div id="server-info" class="server-info"></div>
-            <div id="player-list" class="player-list"></div>
-            <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
-            <p class="waiting-text">Waiting for host to start...</p>
+          <div class="lobby-container">
+            <!-- Left Panel: Player Slots -->
+            <div class="panel lobby-slots-panel">
+              <h2>Player Slots</h2>
+              <div id="slot-list" class="slot-list"></div>
+              <div class="lobby-actions">
+                <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
+                <p class="waiting-text">Waiting for host to start...</p>
+              </div>
+            </div>
+            
+            <!-- Right Panel: Unassigned Players & Info -->
+            <div class="lobby-right-panel">
+              <div class="panel lobby-info-panel">
+                <h3>Server Info</h3>
+                <div id="server-info" class="server-info"></div>
+              </div>
+              <div class="panel lobby-unassigned-panel">
+                <h3>Unassigned Players</h3>
+                <div id="unassigned-list" class="unassigned-list"></div>
+              </div>
+              <!-- Lobby Chat Panel -->
+              <div class="panel lobby-chat-panel">
+                <div class="chat-header">
+                  <span class="chat-title">Chat</span>
+                </div>
+                <div id="lobby-chat-messages" class="chat-messages"></div>
+                <div class="chat-input-container">
+                  <input type="text" id="lobby-chat-input" class="chat-input" placeholder="Type a message..." maxlength="200">
+                  <button id="lobby-chat-send" class="chat-send-btn">Send</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -321,6 +350,22 @@ export class UIManager {
       }
     });
 
+    // Lobby Chat
+    document.getElementById('lobby-chat-send')?.addEventListener('click', () => {
+      const input = document.getElementById('lobby-chat-input') as HTMLInputElement;
+      const message = input.value.trim();
+      if (message) {
+        this.onSendChat?.(message);
+        input.value = '';
+      }
+    });
+
+    document.getElementById('lobby-chat-input')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('lobby-chat-send')?.click();
+      }
+    });
+
     // Enter key for connection
     document.getElementById('player-name')?.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
@@ -524,40 +569,203 @@ export class UIManager {
         margin-top: 12px;
       }
 
-      .lobby-panel {
-        width: 400px;
+      /* WC3-Style Lobby Layout */
+      .lobby-container {
+        display: flex;
+        gap: 20px;
+        width: 100%;
+        max-width: 1000px;
+        height: 80vh;
+        padding: 20px;
+      }
+
+      .lobby-slots-panel {
+        flex: 2;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .lobby-slots-panel h2 {
+        margin-bottom: 16px;
         text-align: center;
+      }
+
+      .lobby-right-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 280px;
+      }
+
+      .lobby-info-panel {
+        padding: 12px;
+      }
+
+      .lobby-info-panel h3 {
+        margin-bottom: 8px;
+      }
+
+      .lobby-unassigned-panel {
+        padding: 12px;
+        flex-shrink: 0;
+      }
+
+      .lobby-unassigned-panel h3 {
+        margin-bottom: 8px;
       }
 
       .server-info {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;
         border-radius: 8px;
-        margin-bottom: 16px;
+        font-family: monospace;
+        font-size: 0.9em;
+      }
+
+      /* Slot List */
+      .slot-list {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .slot-row {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .slot-row.occupied {
+        background: rgba(46, 204, 113, 0.15);
+        border-color: rgba(46, 204, 113, 0.3);
+      }
+
+      .slot-row.empty {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .slot-number {
+        font-weight: bold;
+        width: 60px;
+        color: #888;
+      }
+
+      .slot-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .slot-player-name {
+        font-weight: bold;
+        color: #2ecc71;
+      }
+
+      .slot-player-name.host::after {
+        content: ' 👑';
+      }
+
+      .slot-player-ip {
+        font-size: 0.85em;
+        color: #888;
         font-family: monospace;
       }
 
-      .player-list {
-        text-align: left;
-        margin-bottom: 16px;
+      .slot-empty-text {
+        color: #666;
+        font-style: italic;
       }
 
-      .player-item {
-        padding: 8px 12px;
-        background: rgba(255, 255, 255, 0.1);
+      .slot-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .slot-select {
+        padding: 4px 8px;
+        background: rgba(52, 152, 219, 0.3);
+        border: 1px solid rgba(52, 152, 219, 0.5);
         border-radius: 4px;
-        margin-bottom: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.85em;
+      }
+
+      .slot-select:hover {
+        background: rgba(52, 152, 219, 0.5);
+      }
+
+      .slot-select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Unassigned Players List */
+      .unassigned-list {
+        max-height: 120px;
+        overflow-y: auto;
+      }
+
+      .unassigned-item {
         display: flex;
         justify-content: space-between;
+        align-items: center;
+        padding: 6px 10px;
+        background: rgba(231, 76, 60, 0.15);
+        border-radius: 4px;
+        margin-bottom: 4px;
+        border: 1px solid rgba(231, 76, 60, 0.3);
       }
 
-      .player-item.host::after {
-        content: '👑';
+      .unassigned-name {
+        color: #e74c3c;
+      }
+
+      .unassigned-ip {
+        font-size: 0.8em;
+        color: #888;
+        font-family: monospace;
+      }
+
+      .kick-btn {
+        padding: 4px 8px;
+        background: #c0392b;
+        border: none;
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.8em;
+      }
+
+      .kick-btn:hover {
+        background: #e74c3c;
+      }
+
+      .lobby-actions {
+        margin-top: 16px;
+        text-align: center;
       }
 
       .waiting-text {
         color: #aaa;
         font-style: italic;
+      }
+
+      .lobby-chat-panel {
+        flex: 1;
+        min-height: 200px;
+        height: 300px;
+        background: rgba(30, 30, 50, 0.9);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       /* Game Screen */
@@ -1296,15 +1504,103 @@ export class UIManager {
   private updatePlayersList(): void {
     if (!this.gameState) return;
 
-    // Lobby player list
-    const lobbyList = document.getElementById('player-list');
-    if (lobbyList && this.gameState.phase === 'lobby') {
-      lobbyList.innerHTML = this.gameState.players.map(p => `
-        <div class="player-item ${p.isHost ? 'host' : ''}">
-          <span>${p.name}</span>
-          <span>${p.isConnected ? '🟢' : '🔴'}</span>
-        </div>
-      `).join('');
+    // WC3-style Lobby slot list
+    const slotList = document.getElementById('slot-list');
+    const unassignedList = document.getElementById('unassigned-list');
+    
+    if (slotList && this.gameState.phase === 'lobby') {
+      const maxSlots = this.gameState.settings.maxPlayers;
+      const myPlayer = this.gameState.players.find(p => p.id === this.playerId);
+      const mySlot = myPlayer?.slot;
+      
+      // Render slot rows
+      let slotsHtml = '';
+      for (let i = 0; i < maxSlots; i++) {
+        const playerInSlot = this.gameState.players.find(p => p.slot === i);
+        const isOccupied = !!playerInSlot;
+        const isMySlot = mySlot === i;
+        
+        slotsHtml += `
+          <div class="slot-row ${isOccupied ? 'occupied' : 'empty'}">
+            <div class="slot-number">Slot ${i + 1}</div>
+            <div class="slot-content">
+              ${isOccupied ? `
+                <span class="slot-player-name ${playerInSlot.isHost ? 'host' : ''}">${playerInSlot.name}</span>
+                <span class="slot-player-ip">(${playerInSlot.ip})</span>
+                <span>${playerInSlot.isConnected ? '🟢' : '🔴'}</span>
+              ` : `
+                <span class="slot-empty-text">Open</span>
+              `}
+            </div>
+            <div class="slot-actions">
+              ${!isOccupied && mySlot === null ? `
+                <button class="slot-select" data-slot="${i}">Join</button>
+              ` : ''}
+              ${isMySlot ? `
+                <button class="slot-select" data-slot="leave">Leave</button>
+              ` : ''}
+              ${this.isHost && isOccupied && playerInSlot.id !== this.playerId ? `
+                <button class="kick-btn" data-player-id="${playerInSlot.id}">Kick</button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }
+      slotList.innerHTML = slotsHtml;
+
+      // Add slot selection event listeners
+      slotList.querySelectorAll('.slot-select').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const slotStr = (e.target as HTMLElement).getAttribute('data-slot');
+          if (slotStr === 'leave') {
+            this.onSelectSlot?.(null);
+          } else if (slotStr !== null) {
+            this.onSelectSlot?.(parseInt(slotStr, 10));
+          }
+        });
+      });
+
+      // Add kick button event listeners
+      slotList.querySelectorAll('.kick-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const playerId = (e.target as HTMLElement).getAttribute('data-player-id');
+          if (playerId) {
+            this.onKickPlayer?.(playerId);
+          }
+        });
+      });
+    }
+
+    // Render unassigned players
+    if (unassignedList && this.gameState.phase === 'lobby') {
+      const unassignedPlayers = this.gameState.players.filter(p => p.slot === null);
+      
+      if (unassignedPlayers.length === 0) {
+        unassignedList.innerHTML = '<div class="slot-empty-text">No unassigned players</div>';
+      } else {
+        unassignedList.innerHTML = unassignedPlayers.map(p => `
+          <div class="unassigned-item">
+            <div>
+              <span class="unassigned-name">${p.name}${p.isHost ? ' 👑' : ''}</span>
+              <span class="unassigned-ip">(${p.ip})</span>
+            </div>
+            <div>
+              <span>${p.isConnected ? '🟢' : '🔴'}</span>
+              ${this.isHost && p.id !== this.playerId ? `<button class="kick-btn" data-player-id="${p.id}">Kick</button>` : ''}
+            </div>
+          </div>
+        `).join('');
+
+        // Add kick button event listeners for unassigned list
+        unassignedList.querySelectorAll('.kick-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const playerId = (e.target as HTMLElement).getAttribute('data-player-id');
+            if (playerId) {
+              this.onKickPlayer?.(playerId);
+            }
+          });
+        });
+      }
     }
 
     // Game player panel
@@ -1717,25 +2013,37 @@ export class UIManager {
   }
 
   public addChatMessage(playerName: string, message: string): void {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
+    // Add to both game chat and lobby chat
+    const containers = [
+      document.getElementById('chat-messages'),
+      document.getElementById('lobby-chat-messages')
+    ];
 
-    const msgEl = document.createElement('div');
-    msgEl.className = 'chat-message';
-    msgEl.innerHTML = `<span class="sender">${playerName}:</span> ${message}`;
-    container.appendChild(msgEl);
-    container.scrollTop = container.scrollHeight;
+    for (const container of containers) {
+      if (!container) continue;
+      const msgEl = document.createElement('div');
+      msgEl.className = 'chat-message';
+      msgEl.innerHTML = `<span class="sender">${playerName}:</span> ${message}`;
+      container.appendChild(msgEl);
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   public addSystemMessage(message: string, isCardPlay: boolean = false): void {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
+    // Add to both game chat and lobby chat
+    const containers = [
+      document.getElementById('chat-messages'),
+      document.getElementById('lobby-chat-messages')
+    ];
 
-    const msgEl = document.createElement('div');
-    msgEl.className = `chat-message system ${isCardPlay ? 'card-play' : ''}`;
-    msgEl.innerHTML = `<em>${message}</em>`;
-    container.appendChild(msgEl);
-    container.scrollTop = container.scrollHeight;
+    for (const container of containers) {
+      if (!container) continue;
+      const msgEl = document.createElement('div');
+      msgEl.className = `chat-message system ${isCardPlay ? 'card-play' : ''}`;
+      msgEl.innerHTML = `<em>${message}</em>`;
+      container.appendChild(msgEl);
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   public showCardPlayedNotification(playerName: string, cardName: string, cardType: string, isOwnCard: boolean): void {

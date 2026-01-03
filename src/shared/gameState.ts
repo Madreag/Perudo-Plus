@@ -60,10 +60,12 @@ export function createDefaultActiveEffects(): ActiveEffects {
   };
 }
 
-export function createPlayer(name: string, isHost: boolean = false): Player {
+export function createPlayer(name: string, isHost: boolean = false, ip: string = 'unknown'): Player {
   return {
     id: uuidv4(),
     name,
+    ip,
+    slot: null, // Players start unassigned
     dice: [],
     cards: [],
     isConnected: true,
@@ -514,6 +516,8 @@ export function toPublicGameState(state: GameState): PublicGameState {
   const publicPlayers: PublicPlayerInfo[] = state.players.map(player => ({
     id: player.id,
     name: player.name,
+    ip: player.ip,
+    slot: player.slot,
     diceCount: player.dice.length,
     cardCount: player.cards.length,
     isConnected: player.isConnected,

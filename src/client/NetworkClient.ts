@@ -37,6 +37,7 @@ export interface NetworkClientEvents {
   onServerInfo: (publicIp: string, port: number) => void;
   onGamePaused: (pausedBy: string) => void;
   onGameResumed: (resumedBy: string) => void;
+  onPlayerKicked: (reason: string) => void;
 }
 
 export class NetworkClient {
@@ -253,6 +254,10 @@ export class NetworkClient {
         this.events.onError?.(message.payload.message, message.payload.code);
         break;
 
+      case 'player_kicked':
+        this.events.onPlayerKicked?.(message.payload.reason);
+        break;
+
       default:
         console.log('Unknown message type:', (message as any).type);
     }
@@ -351,6 +356,20 @@ export class NetworkClient {
     this.send({
       type: 'chat',
       payload: { message }
+    });
+  }
+
+  public kickPlayer(playerId: string): void {
+    this.send({
+      type: 'kick_player',
+      payload: { playerId }
+    });
+  }
+
+  public selectSlot(slot: number | null): void {
+    this.send({
+      type: 'select_slot',
+      payload: { slot }
     });
   }
 

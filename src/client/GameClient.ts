@@ -217,6 +217,12 @@ export class GameClient {
       console.error(`Error [${code}]: ${message}`);
       this.ui.addSystemMessage(`Error: ${message}`);
     });
+
+    this.network.on('onPlayerKicked', (reason) => {
+      this.ui.showScreen('connection-screen');
+      this.ui.showConnectionError(reason);
+      this.music.toLobby();
+    });
   }
 
   private setupUIEvents(): void {
@@ -267,6 +273,14 @@ export class GameClient {
 
     this.ui.onNewGame = () => {
       this.network.requestNewGame();
+    };
+
+    this.ui.onKickPlayer = (playerId) => {
+      this.network.kickPlayer(playerId);
+    };
+
+    this.ui.onSelectSlot = (slot) => {
+      this.network.selectSlot(slot);
     };
   }
 

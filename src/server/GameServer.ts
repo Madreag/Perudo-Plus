@@ -54,6 +54,7 @@ interface ConnectedClient {
   ws: WebSocket;
   playerId: string;
   playerName: string;
+  ip: string;
 }
 
 export class GameServer {
@@ -94,14 +95,27 @@ export class GameServer {
   }
 
   private setupWebSocket(): void {
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
       const clientId = uuidv4();
-      console.log(`Client connected: ${clientId}`);
+      let clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() 
+        || req.socket.remoteAddress 
+        || 'unknown';
+      
+      // Convert IPv6 mapped IPv4 addresses (::ffff:192.168.1.1) to IPv4
+      if (clientIp.startsWith('::ffff:')) {
+        clientIp = clientIp.substring(7);
+      }
+      // Convert localhost IPv6 (::1) to readable format
+      if (clientIp === '::1' || clientIp === '127.0.0.1') {
+        clientIp = 'localhost';
+      }
+      
+      console.log(`Client connected: ${clientId} from ${clientIp}`);
 
       ws.on('message', (data: WebSocket.Data) => {
         try {
           const message: ClientMessage = JSON.parse(data.toString());
-          this.handleMessage(clientId, ws, message);
+          this.handleMessage(clientId, ws, clientIp, message);
         } catch (error) {
           console.error('Error parsing message:', error);
           this.sendError(ws, 'Invalid message format', 'PARSE_ERROR');
@@ -118,12 +132,12 @@ export class GameServer {
     });
   }
 
-  private handleMessage(clientId: string, ws: WebSocket, message: ClientMessage): void {
+  private handleMessage(clientId: string, ws: WebSocket, clientIp: string, message: ClientMessage): void {
     console.log(`Received message from ${clientId}:`, message.type);
 
     switch (message.type) {
       case 'join_game':
-        this.handleJoinGame(clientId, ws, message.payload as JoinGamePayload);
+        this.handleJoinGame(clientId, ws, clientIp, message.payload as JoinGamePayload);
         break;
       case 'start_game':
         this.handleStartGame(clientId);
@@ -155,12 +169,18 @@ export class GameServer {
       case 'chat':
         this.handleChat(clientId, message.payload);
         break;
+      case 'kick_player':
+        this.handleKickPlayer(clientId, message.payload.playerId);
+        break;
+      case 'select_slot':
+        this.handleSelectSlot(clientId, message.payload.slot);
+        break;
       default:
         this.sendError(ws, `Unknown message type: ${message.type}`, 'UNKNOWN_MESSAGE');
     }
   }
 
-  private handleJoinGame(clientId: string, ws: WebSocket, payload: JoinGamePayload): void {
+  private handleJoinGame(clientId: string, ws: WebSocket, clientIp: string, payload: JoinGamePayload): void {
     try {
       // Check if this is a reconnecting player (same name, disconnected)
       const existingPlayer = this.gameState.players.find(
@@ -178,7 +198,7 @@ export class GameServer {
           )
         };
 
-        this.clients.set(clientId, { ws, playerId: existingPlayer.id, playerName: existingPlayer.name });
+        this.clients.set(clientId, { ws, playerId: existingPlayer.id, playerName: existingPlayer.name, ip: existingPlayer.ip });
 
         // Send connection accepted
         this.send(ws, {
@@ -217,10 +237,10 @@ export class GameServer {
 
       // New player joining
       const isHost = this.gameState.players.length === 0;
-      const player = createPlayer(payload.playerName, isHost);
+      const player = createPlayer(payload.playerName, isHost, clientIp);
       
       this.gameState = addPlayer(this.gameState, player);
-      this.clients.set(clientId, { ws, playerId: player.id, playerName: player.name });
+      this.clients.set(clientId, { ws, playerId: player.id, playerName: player.name, ip: clientIp });
 
       // Send connection accepted to the new player
       this.send(ws, {
@@ -886,6 +906,107 @@ export class GameServer {
     });
 
     console.log(`Player ${client.playerName} disconnected`);
+  }
+
+  private handleKickPlayer(clientId: string, targetPlayerId: string): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    // Only host can kick players
+    const requestingPlayer = this.gameState.players.find(p => p.id === client.playerId);
+    if (!requestingPlayer?.isHost) {
+      this.sendError(client.ws, 'Only the host can kick players', 'NOT_HOST');
+      return;
+    }
+
+    // Can't kick yourself
+    if (targetPlayerId === client.playerId) {
+      this.sendError(client.ws, 'Cannot kick yourself', 'KICK_ERROR');
+      return;
+    }
+
+    // Find the target player
+    const targetPlayer = this.gameState.players.find(p => p.id === targetPlayerId);
+    if (!targetPlayer) {
+      this.sendError(client.ws, 'Player not found', 'PLAYER_NOT_FOUND');
+      return;
+    }
+
+    // Remove player from game state
+    this.gameState = {
+      ...this.gameState,
+      players: this.gameState.players.filter(p => p.id !== targetPlayerId)
+    };
+
+    // Find and close the target's connection
+    for (const [cid, c] of this.clients.entries()) {
+      if (c.playerId === targetPlayerId) {
+        // Send kicked message to the player being kicked
+        this.send(c.ws, {
+          type: 'player_kicked',
+          payload: { reason: 'You have been kicked by the host' }
+        });
+        c.ws.close();
+        this.clients.delete(cid);
+        break;
+      }
+    }
+
+    // Notify remaining players
+    this.broadcast({
+      type: 'player_left',
+      payload: {
+        playerId: targetPlayerId,
+        playerName: targetPlayer.name,
+        gameState: toPublicGameState(this.gameState)
+      }
+    });
+
+    console.log(`Player ${targetPlayer.name} was kicked by ${requestingPlayer.name}`);
+  }
+
+  private handleSelectSlot(clientId: string, slot: number | null): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    // Can only select slots in lobby
+    if (this.gameState.phase !== 'lobby') {
+      this.sendError(client.ws, 'Cannot change slots during game', 'SLOT_ERROR');
+      return;
+    }
+
+    // Validate slot number
+    if (slot !== null && (slot < 0 || slot >= this.gameState.settings.maxPlayers)) {
+      this.sendError(client.ws, 'Invalid slot number', 'SLOT_ERROR');
+      return;
+    }
+
+    // Check if slot is already taken by another player
+    if (slot !== null) {
+      const slotTaken = this.gameState.players.some(
+        p => p.slot === slot && p.id !== client.playerId
+      );
+      if (slotTaken) {
+        this.sendError(client.ws, 'Slot is already taken', 'SLOT_TAKEN');
+        return;
+      }
+    }
+
+    // Update player's slot
+    this.gameState = {
+      ...this.gameState,
+      players: this.gameState.players.map(p =>
+        p.id === client.playerId ? { ...p, slot } : p
+      )
+    };
+
+    // Broadcast updated game state
+    this.broadcast({
+      type: 'game_state_update',
+      payload: { gameState: toPublicGameState(this.gameState) }
+    });
+
+    console.log(`Player ${client.playerName} selected slot ${slot}`);
   }
 
   private sendPrivateInfo(playerId: string): void {

@@ -53,6 +53,8 @@ export interface Card {
 export interface Player {
   id: string;
   name: string;
+  ip: string;
+  slot: number | null; // null = unassigned, 0-based slot index
   dice: Die[];
   cards: Card[];
   isConnected: boolean;
@@ -65,6 +67,8 @@ export interface Player {
 export interface PublicPlayerInfo {
   id: string;
   name: string;
+  ip: string;
+  slot: number | null;
   diceCount: number;
   cardCount: number;
   isConnected: boolean;
@@ -167,7 +171,9 @@ export type ClientMessageType =
   | 'chat'
   | 'new_game'
   | 'pause_game'
-  | 'resume_game';
+  | 'resume_game'
+  | 'kick_player'
+  | 'select_slot';
 
 export type ServerMessageType = 
   | 'connection_accepted'
@@ -191,7 +197,8 @@ export type ServerMessageType =
   | 'chat'
   | 'server_info'
   | 'game_paused'
-  | 'game_resumed';
+  | 'game_resumed'
+  | 'player_kicked';
 
 export interface ClientMessage {
   type: ClientMessageType;
