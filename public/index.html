@@ -19,6 +19,14 @@
       background: #1a1a2e;
     }
 
+    /* Allow scrolling on mobile */
+    @media (max-width: 768px) {
+      html, body {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+
     #game-container {
       width: 100%;
       height: 100%;

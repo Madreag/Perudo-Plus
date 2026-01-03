@@ -1450,6 +1450,346 @@ export class UIManager {
         background: rgba(155, 89, 182, 0.3);
         color: #bb8fce;
       }
+
+      /* ============================================ */
+      /* Mobile Responsive Styles */
+      /* ============================================ */
+      @media (max-width: 768px) {
+        /* Connection Screen */
+        .connection-panel {
+          width: 90%;
+          max-width: 350px;
+          padding: 20px;
+        }
+
+        .connection-panel h1 {
+          font-size: 1.8em;
+        }
+
+        /* Lobby Screen */
+        .lobby-container {
+          flex-direction: column;
+          height: auto;
+          max-height: 95vh;
+          padding: 10px;
+          overflow-y: auto;
+        }
+
+        .lobby-left-column {
+          width: 100%;
+          gap: 10px;
+        }
+
+        .lobby-slots-panel {
+          min-height: auto;
+          padding: 16px;
+        }
+
+        .lobby-slots-panel h2 {
+          font-size: 1.3em;
+          margin-bottom: 10px;
+        }
+
+        .slot-list {
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .slot-row {
+          padding: 8px;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .slot-number {
+          width: 50px;
+          font-size: 0.9em;
+        }
+
+        .slot-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .slot-player-name {
+          font-size: 0.9em;
+        }
+
+        .slot-player-ip {
+          font-size: 0.75em;
+        }
+
+        .lobby-right-panel {
+          width: 100%;
+          max-width: none;
+          gap: 10px;
+        }
+
+        .lobby-info-panel,
+        .lobby-unassigned-panel {
+          padding: 10px;
+        }
+
+        .lobby-chat-panel {
+          position: relative !important;
+          width: 100% !important;
+          height: 250px !important;
+          max-width: none !important;
+          display: flex !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
+          resize: none !important;
+        }
+
+        .lobby-chat-panel .chat-header {
+          display: none !important; /* Hide chat banner on mobile to save space */
+        }
+
+        .lobby-chat-panel .chat-messages {
+          flex: 1 1 auto !important;
+          min-height: 0 !important;
+          overflow-y: auto !important;
+          padding: 12px !important;
+        }
+
+        .lobby-chat-panel .chat-input-container {
+          flex: 0 0 auto !important;
+          display: flex !important;
+          padding: 8px !important;
+          border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .unassigned-list {
+          max-height: 100px;
+        }
+
+        /* Fix iOS auto-zoom on input focus - ensure 16px minimum */
+        input, select, textarea {
+          font-size: 16px !important;
+        }
+
+        .chat-input {
+          font-size: 16px !important;
+        }
+
+        .form-group input {
+          font-size: 16px !important;
+        }
+
+        .bid-inputs input,
+        .bid-inputs select {
+          font-size: 16px !important;
+        }
+
+        /* Game Screen */
+        #game-screen {
+          overflow-y: auto;
+        }
+
+        .top-bar {
+          position: relative !important;
+          height: auto !important;
+          flex-wrap: wrap;
+          padding: 8px;
+          gap: 8px;
+          z-index: 100;
+        }
+
+        .top-bar > div {
+          font-size: 0.85em;
+        }
+
+        .pause-btn {
+          padding: 6px 10px;
+          font-size: 0.85em;
+        }
+
+        .players-panel {
+          position: relative;
+          width: 100% !important;
+          max-width: none !important;
+          top: auto;
+          left: auto;
+          max-height: none !important;
+          margin-bottom: 10px;
+          padding: 12px;
+        }
+
+        .player-status {
+          padding: 8px;
+          font-size: 0.9em;
+        }
+
+        .private-panel {
+          position: relative;
+          bottom: auto;
+          left: auto;
+          right: auto !important;
+          width: 100%;
+          flex-direction: column;
+          padding: 12px;
+          margin-bottom: 10px;
+          gap: 16px;
+        }
+
+        .dice-section h3,
+        .cards-section h3 {
+          font-size: 1em;
+          margin-bottom: 8px;
+        }
+
+        .die-display {
+          width: 40px;
+          height: 40px;
+          font-size: 1.2em;
+        }
+
+        .cards-container {
+          flex-wrap: wrap;
+        }
+
+        .card-display {
+          width: 100px;
+          min-height: 80px;
+          padding: 8px;
+        }
+
+        .card-name {
+          font-size: 0.8em;
+        }
+
+        .card-desc {
+          font-size: 0.65em;
+        }
+
+        .action-panel {
+          position: relative;
+          bottom: auto;
+          left: auto;
+          right: auto !important;
+          width: 100%;
+          padding: 12px;
+          margin-bottom: 10px;
+        }
+
+        .bid-controls {
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .bid-inputs {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .bid-inputs input,
+        .bid-inputs select {
+          width: 60px;
+          padding: 6px 8px;
+          font-size: 14px;
+        }
+
+        .action-buttons {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .action-buttons .btn {
+          padding: 10px 16px;
+          font-size: 14px;
+        }
+
+        .chat-panel {
+          position: relative;
+          bottom: auto;
+          right: auto;
+          width: 100% !important;
+          height: 250px !important;
+          max-width: none !important;
+          resize: none;
+        }
+
+        .chat-panel .chat-header {
+          display: none !important; /* Hide chat header on mobile to match lobby */
+        }
+
+        .chat-panel .chat-messages {
+          padding-top: 12px !important; /* Extra padding since header is hidden */
+        }
+
+        /* Modal adjustments */
+        .modal-content {
+          width: 90%;
+          max-width: 400px;
+          padding: 20px;
+          max-height: 80vh;
+          overflow-y: auto;
+        }
+
+        .target-options {
+          max-height: 200px;
+        }
+
+        .target-die {
+          width: 35px;
+          height: 35px;
+          font-size: 1em;
+        }
+
+        .face-value-btn {
+          width: 40px;
+          height: 40px;
+          font-size: 1.2em;
+        }
+
+        /* Card notification */
+        .card-notification {
+          width: 90%;
+          max-width: 300px;
+          padding: 12px 16px;
+        }
+      }
+
+      /* Extra small screens */
+      @media (max-width: 480px) {
+        .connection-panel h1 {
+          font-size: 1.5em;
+        }
+
+        .btn {
+          padding: 10px 16px;
+          font-size: 14px;
+        }
+
+        .slot-row {
+          padding: 6px;
+        }
+
+        .slot-number {
+          width: 40px;
+          font-size: 0.8em;
+        }
+
+        .lobby-chat-panel {
+          height: 250px !important;
+        }
+
+        .chat-panel {
+          height: 250px !important;
+        }
+
+        .die-display {
+          width: 35px;
+          height: 35px;
+          font-size: 1em;
+        }
+
+        .card-display {
+          width: 85px;
+          min-height: 70px;
+          padding: 6px;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
