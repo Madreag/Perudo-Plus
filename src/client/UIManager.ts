@@ -129,6 +129,10 @@ export class UIManager {
 
           <!-- Chat Panel -->
           <div id="chat-panel" class="chat-panel">
+            <div class="chat-header">
+              <div class="chat-resize-handle" id="chat-resize-handle"></div>
+              <span class="chat-title">Chat</span>
+            </div>
             <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input-container">
               <input type="text" id="chat-input" placeholder="Type a message...">
@@ -323,6 +327,121 @@ export class UIManager {
         document.getElementById('connect-btn')?.click();
       }
     });
+
+    // Chat panel resize functionality
+    this.setupChatResize();
+  }
+
+  private setupChatResize(): void {
+    const chatPanel = document.getElementById('chat-panel');
+    const resizeHandle = document.getElementById('chat-resize-handle');
+
+    if (!chatPanel || !resizeHandle) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+
+    // Function to update other panels based on chat panel size
+    const updatePanelPositions = (chatWidth: number, chatHeight: number) => {
+      const playersPanel = document.getElementById('players-panel');
+      const privatePanel = document.getElementById('private-panel');
+      const actionPanel = document.getElementById('action-panel');
+
+      // Calculate the right offset for private and action panels
+      // Chat panel is at right: 10px, so other panels need right: chatWidth + 20px (10px gap)
+      const rightOffset = chatWidth + 20;
+
+      if (privatePanel) {
+        privatePanel.style.right = `${rightOffset}px`;
+      }
+
+      if (actionPanel) {
+        actionPanel.style.right = `${rightOffset}px`;
+      }
+
+      // Update players panel to match chat panel width and avoid vertical overlap
+      if (playersPanel) {
+        // Set players panel width to match chat panel width
+        playersPanel.style.width = `${chatWidth}px`;
+        
+        // Calculate max-height for players panel to avoid overlapping with chat
+        // Chat panel is at bottom: 10px with variable height
+        // Players panel starts at top: 70px
+        // Leave 10px gap between players panel and chat panel
+        const windowHeight = window.innerHeight;
+        const chatTop = windowHeight - 10 - chatHeight; // Chat panel's top position
+        const playersTop = 70;
+        const maxPlayersHeight = chatTop - playersTop - 10; // 10px gap
+        
+        if (maxPlayersHeight > 0) {
+          playersPanel.style.maxHeight = `${maxPlayersHeight}px`;
+          playersPanel.style.overflowY = 'auto';
+        }
+      }
+    };
+
+    // Initialize panel positions based on default chat size
+    const initializePanelPositions = () => {
+      const chatWidth = chatPanel.offsetWidth || 300;
+      const chatHeight = chatPanel.offsetHeight || 350;
+      updatePanelPositions(chatWidth, chatHeight);
+    };
+
+    // Call on initial load
+    setTimeout(initializePanelPositions, 0);
+
+    // Also update on window resize
+    window.addEventListener('resize', () => {
+      const chatWidth = chatPanel.offsetWidth;
+      const chatHeight = chatPanel.offsetHeight;
+      updatePanelPositions(chatWidth, chatHeight);
+    });
+
+    const onMouseDown = (e: MouseEvent) => {
+      isResizing = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startWidth = chatPanel.offsetWidth;
+      startHeight = chatPanel.offsetHeight;
+
+      document.body.style.cursor = 'nw-resize';
+      document.body.style.userSelect = 'none';
+
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+
+      // Calculate the difference (inverted because we're resizing from top-left)
+      const deltaX = startX - e.clientX;
+      const deltaY = startY - e.clientY;
+
+      // Calculate new dimensions
+      const newWidth = Math.min(Math.max(startWidth + deltaX, 200), 600);
+      const newHeight = Math.min(Math.max(startHeight + deltaY, 150), window.innerHeight * 0.8);
+
+      chatPanel.style.width = `${newWidth}px`;
+      chatPanel.style.height = `${newHeight}px`;
+
+      // Update other panels to avoid overlap
+      updatePanelPositions(newWidth, newHeight);
+    };
+
+    const onMouseUp = () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    resizeHandle.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   }
 
   private injectStyles(): void {
@@ -551,10 +670,12 @@ export class UIManager {
       }
 
       .players-panel {
+        transition: max-height 0.1s ease-out, right 0.1s ease-out, width 0.1s ease-out;
+        overflow-y: auto;
         position: absolute;
         top: 70px;
         right: 10px;
-        width: 200px;
+        width: 300px;
         background: rgba(30, 30, 50, 0.8);
         border-radius: 12px;
         padding: 16px;
@@ -586,10 +707,11 @@ export class UIManager {
       }
 
       .private-panel {
+        transition: right 0.1s ease-out;
         position: absolute;
         bottom: 80px;
         left: 10px;
-        right: 220px;
+        right: 320px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -670,10 +792,11 @@ export class UIManager {
       }
 
       .action-panel {
+        transition: right 0.1s ease-out;
         position: absolute;
         bottom: 10px;
         left: 10px;
-        right: 220px;
+        right: 320px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -710,13 +833,69 @@ export class UIManager {
         position: absolute;
         bottom: 10px;
         right: 10px;
-        width: 200px;
-        height: 300px;
+        width: 300px;
+        height: 350px;
+        min-width: 200px;
+        min-height: 150px;
+        max-width: 600px;
+        max-height: 80vh;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        resize: both;
+      }
+
+      .chat-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        cursor: default;
+        flex-shrink: 0;
+      }
+
+      .chat-title {
+        font-size: 0.9em;
+        font-weight: bold;
+        color: #4a90d9;
+      }
+
+      .chat-resize-handle {
+        width: 16px;
+        height: 16px;
+        cursor: nw-resize;
+        margin-right: 8px;
+        position: relative;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+      }
+
+      .chat-resize-handle:hover {
+        opacity: 1;
+      }
+
+      .chat-resize-handle::before,
+      .chat-resize-handle::after {
+        content: '';
+        position: absolute;
+        background: #4a90d9;
+      }
+
+      .chat-resize-handle::before {
+        width: 10px;
+        height: 2px;
+        top: 7px;
+        left: 0;
+      }
+
+      .chat-resize-handle::after {
+        width: 2px;
+        height: 10px;
+        top: 0;
+        left: 7px;
       }
 
       .chat-messages {

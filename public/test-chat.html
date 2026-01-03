@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Panel Test</title>
+  <title>Chat Panel Resize Test</title>
   <style>
     * {
       margin: 0;
@@ -31,18 +31,74 @@
       color: white;
     }
 
-    /* Fixed chat panel styles */
+    /* Resizable chat panel styles */
     .chat-panel {
       position: absolute;
       bottom: 10px;
       right: 10px;
-      width: 200px;
-      height: 300px;
+      width: 300px;
+      height: 350px;
+      min-width: 200px;
+      min-height: 150px;
+      max-width: 600px;
+      max-height: 80vh;
       background: rgba(30, 30, 50, 0.9);
       border-radius: 12px;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      resize: both;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: default;
+      flex-shrink: 0;
+    }
+
+    .chat-title {
+      font-size: 0.9em;
+      font-weight: bold;
+      color: #4a90d9;
+    }
+
+    .chat-resize-handle {
+      width: 16px;
+      height: 16px;
+      cursor: nw-resize;
+      margin-right: 8px;
+      position: relative;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+
+    .chat-resize-handle:hover {
+      opacity: 1;
+    }
+
+    .chat-resize-handle::before,
+    .chat-resize-handle::after {
+      content: '';
+      position: absolute;
+      background: #4a90d9;
+    }
+
+    .chat-resize-handle::before {
+      width: 10px;
+      height: 2px;
+      top: 7px;
+      left: 0;
+    }
+
+    .chat-resize-handle::after {
+      width: 2px;
+      height: 10px;
+      top: 0;
+      left: 7px;
     }
 
     .chat-messages {
@@ -93,34 +149,134 @@
       color: white;
       font-size: 14px;
     }
+
+    .info ul {
+      margin-left: 20px;
+      margin-top: 10px;
+    }
+
+    .info li {
+      margin-bottom: 5px;
+    }
   </style>
 </head>
 <body>
   <div class="info">
-    <h2>Chat Panel Test</h2>
-    <p>The Send button should be visible in the bottom-right chat panel.</p>
-    <p>Key fixes applied:</p>
+    <h2>Chat Panel Resize Test</h2>
+    <p>The chat panel is now resizable!</p>
+    <p style="margin-top: 10px;"><strong>How to resize:</strong></p>
     <ul>
-      <li>chat-panel: overflow: hidden</li>
-      <li>chat-messages: min-height: 0</li>
-      <li>chat-input-container: flex-shrink: 0</li>
-      <li>chat-input-container input: min-width: 0</li>
-      <li>chat-input-container button: flex-shrink: 0</li>
+      <li><strong>Method 1:</strong> Drag the resize icon (↖) in the top-left corner of the chat header</li>
+      <li><strong>Method 2:</strong> Use the native browser resize handle at the bottom-right corner</li>
+    </ul>
+    <p style="margin-top: 10px;"><strong>Constraints:</strong></p>
+    <ul>
+      <li>Min width: 200px</li>
+      <li>Min height: 150px</li>
+      <li>Max width: 600px</li>
+      <li>Max height: 80% of viewport height</li>
     </ul>
   </div>
 
-  <div class="chat-panel">
-    <div class="chat-messages">
+  <div id="chat-panel" class="chat-panel">
+    <div class="chat-header">
+      <div class="chat-resize-handle" id="chat-resize-handle"></div>
+      <span class="chat-title">Chat</span>
+    </div>
+    <div id="chat-messages" class="chat-messages">
       <div class="chat-message"><span class="sender">Player1:</span> Hello!</div>
       <div class="chat-message"><span class="sender">Player2:</span> Hi there!</div>
       <div class="chat-message"><span class="sender">Player1:</span> Ready to play?</div>
       <div class="chat-message"><span class="sender">Player2:</span> Yes, let's go!</div>
       <div class="chat-message"><span class="sender">System:</span> Game starting...</div>
+      <div class="chat-message"><span class="sender">Player1:</span> I'll start with a bid of 3 twos.</div>
+      <div class="chat-message"><span class="sender">Player2:</span> I'll raise to 4 twos.</div>
+      <div class="chat-message"><span class="sender">Player1:</span> 5 twos!</div>
+      <div class="chat-message"><span class="sender">Player2:</span> Dudo!</div>
+      <div class="chat-message"><span class="sender">System:</span> Player2 called Dudo! Revealing dice...</div>
     </div>
     <div class="chat-input-container">
-      <input type="text" placeholder="Type a message...">
-      <button class="btn">Send</button>
+      <input type="text" id="chat-input" placeholder="Type a message...">
+      <button class="btn" id="chat-send-btn">Send</button>
     </div>
   </div>
+
+  <script>
+    // Chat panel resize functionality
+    (function() {
+      const chatPanel = document.getElementById('chat-panel');
+      const resizeHandle = document.getElementById('chat-resize-handle');
+      
+      if (!chatPanel || !resizeHandle) return;
+
+      let isResizing = false;
+      let startX = 0;
+      let startY = 0;
+      let startWidth = 0;
+      let startHeight = 0;
+
+      const onMouseDown = (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = chatPanel.offsetWidth;
+        startHeight = chatPanel.offsetHeight;
+        
+        document.body.style.cursor = 'nw-resize';
+        document.body.style.userSelect = 'none';
+        
+        e.preventDefault();
+      };
+
+      const onMouseMove = (e) => {
+        if (!isResizing) return;
+
+        // Calculate the difference (inverted because we're resizing from top-left)
+        const deltaX = startX - e.clientX;
+        const deltaY = startY - e.clientY;
+
+        // Calculate new dimensions
+        const newWidth = Math.min(Math.max(startWidth + deltaX, 200), 600);
+        const newHeight = Math.min(Math.max(startHeight + deltaY, 150), window.innerHeight * 0.8);
+
+        chatPanel.style.width = `${newWidth}px`;
+        chatPanel.style.height = `${newHeight}px`;
+      };
+
+      const onMouseUp = () => {
+        if (isResizing) {
+          isResizing = false;
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+        }
+      };
+
+      resizeHandle.addEventListener('mousedown', onMouseDown);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+
+      // Simple chat functionality for testing
+      const chatInput = document.getElementById('chat-input');
+      const chatSendBtn = document.getElementById('chat-send-btn');
+      const chatMessages = document.getElementById('chat-messages');
+
+      const sendMessage = () => {
+        const message = chatInput.value.trim();
+        if (message) {
+          const msgEl = document.createElement('div');
+          msgEl.className = 'chat-message';
+          msgEl.innerHTML = `<span class="sender">You:</span> ${message}`;
+          chatMessages.appendChild(msgEl);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+          chatInput.value = '';
+        }
+      };
+
+      chatSendBtn.addEventListener('click', sendMessage);
+      chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+      });
+    })();
+  </script>
 </body>
 </html>
