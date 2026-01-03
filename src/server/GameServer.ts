@@ -162,6 +162,60 @@ export class GameServer {
 
   private handleJoinGame(clientId: string, ws: WebSocket, payload: JoinGamePayload): void {
     try {
+      // Check if this is a reconnecting player (same name, disconnected)
+      const existingPlayer = this.gameState.players.find(
+        p => p.name === payload.playerName && !p.isConnected
+      );
+      
+      console.log(`Join request from "${payload.playerName}", existing disconnected player found: ${!!existingPlayer}`);
+
+      if (existingPlayer) {
+        // Reconnect existing player
+        this.gameState = {
+          ...this.gameState,
+          players: this.gameState.players.map(p =>
+            p.id === existingPlayer.id ? { ...p, isConnected: true } : p
+          )
+        };
+
+        this.clients.set(clientId, { ws, playerId: existingPlayer.id, playerName: existingPlayer.name });
+
+        // Send connection accepted
+        this.send(ws, {
+          type: 'connection_accepted',
+          payload: {
+            playerId: existingPlayer.id,
+            isHost: existingPlayer.isHost,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+
+        // Send private info if game is in progress
+        if (this.gameState.phase !== 'lobby' && this.gameState.phase !== 'game_over') {
+          this.send(ws, {
+            type: 'private_info',
+            payload: {
+              dice: existingPlayer.dice,
+              cards: existingPlayer.cards
+            }
+          });
+        }
+
+        // Notify all other players
+        this.broadcastExcept(clientId, {
+          type: 'player_joined',
+          payload: {
+            playerId: existingPlayer.id,
+            playerName: existingPlayer.name,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+
+        console.log(`Player ${existingPlayer.name} reconnected`);
+        return;
+      }
+
+      // New player joining
       const isHost = this.gameState.players.length === 0;
       const player = createPlayer(payload.playerName, isHost);
       

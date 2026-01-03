@@ -55,6 +55,8 @@ export class GameClient {
       } else if (state === 'disconnected') {
         this.ui.showScreen('connection-screen');
         this.ui.showConnectionError('Disconnected from server');
+        // Reset previous phase so reconnection triggers proper screen transition
+        this.previousPhase = null;
         // Go back to lobby music when disconnected
         this.music.toLobby();
       }

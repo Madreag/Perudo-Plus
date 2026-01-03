@@ -346,7 +346,6 @@ export class UIManager {
 
     // Function to update other panels based on chat panel size
     const updatePanelPositions = (chatWidth: number, chatHeight: number) => {
-      const playersPanel = document.getElementById('players-panel');
       const privatePanel = document.getElementById('private-panel');
       const actionPanel = document.getElementById('action-panel');
 
@@ -362,43 +361,8 @@ export class UIManager {
         actionPanel.style.right = `${rightOffset}px`;
       }
 
-      // Update players panel to match chat panel width and avoid vertical overlap
-      if (playersPanel) {
-        // Set players panel width to match chat panel width
-        playersPanel.style.width = `${chatWidth}px`;
-        
-        // Calculate max-height for players panel to avoid overlapping with chat
-        // Chat panel is at bottom: 10px with variable height
-        // Players panel starts at top: 70px
-        // Leave 10px gap between players panel and chat panel
-        const windowHeight = window.innerHeight;
-        const chatTop = windowHeight - 10 - chatHeight; // Chat panel's top position
-        const playersTop = 70;
-        const maxPlayersHeight = chatTop - playersTop - 10; // 10px gap
-        
-        if (maxPlayersHeight > 0) {
-          playersPanel.style.maxHeight = `${maxPlayersHeight}px`;
-          playersPanel.style.overflowY = 'auto';
-        }
-      }
     };
 
-    // Initialize panel positions based on default chat size
-    const initializePanelPositions = () => {
-      const chatWidth = chatPanel.offsetWidth || 300;
-      const chatHeight = chatPanel.offsetHeight || 350;
-      updatePanelPositions(chatWidth, chatHeight);
-    };
-
-    // Call on initial load
-    setTimeout(initializePanelPositions, 0);
-
-    // Also update on window resize
-    window.addEventListener('resize', () => {
-      const chatWidth = chatPanel.offsetWidth;
-      const chatHeight = chatPanel.offsetHeight;
-      updatePanelPositions(chatWidth, chatHeight);
-    });
 
     const onMouseDown = (e: MouseEvent) => {
       isResizing = true;
