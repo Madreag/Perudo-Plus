@@ -518,7 +518,8 @@ export function toPublicGameState(state: GameState): PublicGameState {
     cardCount: player.cards.length,
     isConnected: player.isConnected,
     isHost: player.isHost,
-    isEliminated: player.isEliminated
+    isEliminated: player.isEliminated,
+    activeEffects: player.activeEffects
   }));
 
   return {

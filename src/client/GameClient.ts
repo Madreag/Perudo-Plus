@@ -176,10 +176,13 @@ export class GameClient {
 
     this.network.on('onCardPlayed', (playerId, cardType, cardName, result) => {
       const playerName = this.gameState?.players.find(p => p.id === playerId)?.name || 'Unknown';
-      this.ui.addSystemMessage(`${playerName} played ${cardName}`);
+      const isOwnCard = playerId === this.network.getPlayerId();
+      
+      // Show notification to other players
+      this.ui.showCardPlayedNotification(playerName, cardName, cardType, isOwnCard);
       
       // If this is our card and there's a result, show it
-      if (playerId === this.network.getPlayerId() && result) {
+      if (isOwnCard && result) {
         this.ui.showCardResult(cardType, cardName, result);
       }
     });

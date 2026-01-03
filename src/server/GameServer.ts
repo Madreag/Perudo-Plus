@@ -626,8 +626,10 @@ export class GameServer {
           {
             const dieInfos: { playerId: string; dieType: string; playerName: string }[] = [];
             for (const dieKey of payload.additionalData.dieIds) {
-              // dieKey format is "playerId-dieIndex"
-              const [targetPlayerId, dieIndexStr] = dieKey.split('-');
+              // dieKey format is "playerId-dieIndex" where playerId is a UUID with hyphens
+              const parts = dieKey.split('-');
+              const dieIndexStr = parts[parts.length - 1];
+              const targetPlayerId = parts.slice(0, -1).join('-');
               const dieIndex = parseInt(dieIndexStr);
               const targetPlayer = this.gameState.players.find(p => p.id === targetPlayerId);
               if (targetPlayer && targetPlayer.dice[dieIndex]) {

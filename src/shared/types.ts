@@ -70,6 +70,7 @@ export interface PublicPlayerInfo {
   isConnected: boolean;
   isHost: boolean;
   isEliminated: boolean;
+  activeEffects: ActiveEffects;
 }
 
 // Bid

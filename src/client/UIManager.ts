@@ -825,6 +825,270 @@ export class UIManager {
         border-radius: 4px;
         font-weight: bold;
       }
+
+      /* Card Targeting UI Styles */
+      .target-options {
+        max-height: 400px;
+        overflow-y: auto;
+        margin: 16px 0;
+      }
+
+      .target-section {
+        margin-bottom: 16px;
+      }
+
+      .target-option {
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid transparent;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .target-option:hover {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(74, 144, 217, 0.5);
+      }
+
+      .target-option.selected {
+        background: rgba(74, 144, 217, 0.3);
+        border-color: #4a90d9;
+      }
+
+      .target-player {
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: #4ecdc4;
+      }
+
+      .target-dice {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .target-die {
+        width: 45px;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 1.2em;
+        font-weight: bold;
+        background: rgba(255, 255, 255, 0.2);
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .target-die:hover {
+        background: rgba(255, 255, 255, 0.3);
+        border-color: rgba(74, 144, 217, 0.5);
+        transform: scale(1.05);
+      }
+
+      .target-die.selected {
+        background: rgba(74, 144, 217, 0.4);
+        border-color: #4a90d9;
+        box-shadow: 0 0 10px rgba(74, 144, 217, 0.5);
+      }
+
+      .face-value-options {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin: 16px 0;
+      }
+
+      .face-value-btn {
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 1.5em;
+        font-weight: bold;
+        background: rgba(255, 255, 255, 0.2);
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: white;
+      }
+
+      .face-value-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        border-color: rgba(74, 144, 217, 0.5);
+        transform: scale(1.1);
+      }
+
+      .face-value-btn.selected {
+        background: rgba(74, 144, 217, 0.4);
+        border-color: #4a90d9;
+        box-shadow: 0 0 10px rgba(74, 144, 217, 0.5);
+      }
+
+      #selection-count {
+        text-align: center;
+        margin: 12px 0;
+        color: #aaa;
+        font-size: 0.9em;
+      }
+
+      #card-cancel-btn {
+        margin-top: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #aaa;
+      }
+
+      #card-cancel-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+      }
+
+      /* Card display improvements */
+      .card-display {
+        position: relative;
+        width: 120px;
+        min-height: 100px;
+        padding: 12px;
+        background: linear-gradient(135deg, #2c3e50, #34495e);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .card-display:hover {
+        transform: translateY(-4px);
+        border-color: #4a90d9;
+        box-shadow: 0 4px 15px rgba(74, 144, 217, 0.3);
+      }
+
+      .card-display.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .card-display.disabled:hover {
+        transform: none;
+        border-color: rgba(255, 255, 255, 0.2);
+        box-shadow: none;
+      }
+
+      .card-timing {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        font-size: 0.6em;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.3);
+        color: #aaa;
+      }
+
+      .card-timing.can-play {
+        background: rgba(46, 204, 113, 0.3);
+        color: #2ecc71;
+      }
+
+      /* Card played notification */
+      .card-notification {
+        position: fixed;
+        top: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(30, 30, 50, 0.95);
+        border: 2px solid #4a90d9;
+        border-radius: 12px;
+        padding: 16px 24px;
+        z-index: 1001;
+        animation: cardNotificationSlide 0.3s ease-out;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      }
+
+      @keyframes cardNotificationSlide {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+
+      .card-notification-content {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .card-notification-icon {
+        font-size: 1.5em;
+      }
+
+      .card-notification-text {
+        text-align: left;
+      }
+
+      .card-notification-player {
+        font-weight: bold;
+        color: #4ecdc4;
+      }
+
+      .card-notification-card {
+        color: #ffe66d;
+      }
+
+      /* System message styling for card plays */
+      .chat-message.card-play {
+        background: rgba(74, 144, 217, 0.2);
+        padding: 4px 8px;
+        border-radius: 4px;
+        border-left: 3px solid #4a90d9;
+      }
+
+      /* Warning notification variant */
+      .card-notification.warning {
+        border-color: #f39c12;
+        background: rgba(50, 40, 30, 0.95);
+      }
+
+      .card-notification.warning .card-notification-icon {
+        color: #f39c12;
+      }
+
+      /* Card play notification variant */
+      .card-notification.card-play {
+        border-color: #9b59b6;
+        background: rgba(40, 30, 50, 0.95);
+      }
+
+      .card-notification.card-play .card-notification-icon {
+        color: #9b59b6;
+      }
+
+      /* Active effects indicator */
+      .active-effects {
+        display: flex;
+        gap: 4px;
+        margin-top: 4px;
+        flex-wrap: wrap;
+      }
+
+      .active-effect {
+        font-size: 0.7em;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(155, 89, 182, 0.3);
+        color: #bb8fce;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -912,10 +1176,30 @@ export class UIManager {
             <div class="player-stats">
               🎲 ${p.diceCount} dice | 🃏 ${p.cardCount} cards
             </div>
+            ${this.renderActiveEffects(p.activeEffects)}
           </div>
         `).join('')}
       `;
     }
+  }
+
+  private renderActiveEffects(effects: any): string {
+    if (!effects) return '';
+    
+    const activeEffectsList: string[] = [];
+    
+    if (effects.insurance) activeEffectsList.push('🛡️ Insurance');
+    if (effects.doubleDudo) activeEffectsList.push('⚔️ Double Dudo');
+    if (effects.phantomBid) activeEffectsList.push('👻 Phantom Bid');
+    if (effects.lateDudo) activeEffectsList.push('⏰ Late Dudo');
+    
+    if (activeEffectsList.length === 0) return '';
+    
+    return `
+      <div class="active-effects">
+        ${activeEffectsList.map(effect => `<span class="active-effect">${effect}</span>`).join('')}
+      </div>
+    `;
   }
 
   private updateTopBar(): void {
@@ -1027,13 +1311,70 @@ export class UIManager {
     const container = document.getElementById('my-cards');
     if (!container) return;
 
-    container.innerHTML = this.privateInfo.cards.map(card => `
-      <div class="card-display" data-card-id="${card.id}" onclick="window.gameUI?.playCard('${card.id}')">
-        <div class="card-name">${card.name}</div>
-        <div class="card-desc">${card.description}</div>
-      </div>
-    `).join('');
+    const currentTiming = this.getCurrentCardTiming();
+    
+    container.innerHTML = this.privateInfo.cards.map(card => {
+      const canPlay = this.canPlayCardNow(card, currentTiming);
+      const timingLabel = this.getTimingLabel(card.timing);
+      
+      return `
+        <div class="card-display ${canPlay ? '' : 'disabled'}" 
+             data-card-id="${card.id}" 
+             onclick="window.gameUI?.playCard('${card.id}')"
+             title="${card.description}">
+          <div class="card-timing ${canPlay ? 'can-play' : ''}">${timingLabel}</div>
+          <div class="card-name">${card.name}</div>
+          <div class="card-desc">${card.description}</div>
+        </div>
+      `;
+    }).join('');
   }
+
+  private getCurrentCardTiming(): string {
+    if (!this.gameState) return 'none';
+    
+    const phase = this.gameState.phase;
+    const isMyTurn = this.gameState.players[this.gameState.currentTurnIndex]?.id === this.playerId;
+    
+    if (phase === 'bidding') {
+      if (isMyTurn) {
+        return 'on_turn';
+      } else {
+        return 'reaction';
+      }
+    } else if (phase === 'dudo_called') {
+      return 'on_dudo';
+    }
+    
+    return 'none';
+  }
+
+  private canPlayCardNow(card: Card, currentTiming: string): boolean {
+    if (currentTiming === 'none') return false;
+    if (card.timing === 'any') return true;
+    
+    // on_turn cards can only be played on your turn
+    if (card.timing === 'on_turn' && currentTiming === 'on_turn') return true;
+    
+    // reaction cards can be played when it's not your turn (reacting to others)
+    if (card.timing === 'reaction' && (currentTiming === 'reaction' || currentTiming === 'on_turn')) return true;
+    
+    // on_dudo cards can be played when dudo is called
+    if (card.timing === 'on_dudo' && currentTiming === 'on_dudo') return true;
+    
+    return false;
+  }
+
+  private getTimingLabel(timing: string): string {
+    switch (timing) {
+      case 'on_turn': return '⏱ Your Turn';
+      case 'reaction': return '⚡ Reaction';
+      case 'on_dudo': return '🎯 On Dudo';
+      case 'any': return '✨ Anytime';
+      default: return timing;
+    }
+  }
+
 
   public showDudoResult(result: DudoResult): void {
     const modal = document.getElementById('result-modal');
@@ -1243,16 +1584,54 @@ export class UIManager {
     container.scrollTop = container.scrollHeight;
   }
 
-  public addSystemMessage(message: string): void {
+  public addSystemMessage(message: string, isCardPlay: boolean = false): void {
     const container = document.getElementById('chat-messages');
     if (!container) return;
 
     const msgEl = document.createElement('div');
-    msgEl.className = 'chat-message system';
+    msgEl.className = `chat-message system ${isCardPlay ? 'card-play' : ''}`;
     msgEl.innerHTML = `<em>${message}</em>`;
     container.appendChild(msgEl);
     container.scrollTop = container.scrollHeight;
   }
+
+  public showCardPlayedNotification(playerName: string, cardName: string, cardType: string, isOwnCard: boolean): void {
+    // Don't show notification for own cards (they get the result modal)
+    if (isOwnCard) return;
+
+    // Get card icon based on type
+    const icon = this.getCardIcon(cardType);
+    
+    // Show prominent notification
+    this.showTemporaryNotification(
+      icon,
+      `<span class="card-notification-player">${playerName}</span> played <span class="card-notification-card">${cardName}</span>`,
+      'card-play'
+    );
+
+    // Also add to chat with special styling
+    this.addSystemMessage(`🃏 ${playerName} played ${cardName}`, true);
+  }
+
+  private getCardIcon(cardType: string): string {
+    switch (cardType) {
+      case 'peek': return '👁️';
+      case 'gauge': return '📏';
+      case 'false_tell': return '🎭';
+      case 'inflation': return '📈';
+      case 'wild_shift': return '🔄';
+      case 'phantom_bid': return '👻';
+      case 'insurance': return '🛡️';
+      case 'double_dudo': return '⚔️';
+      case 'late_dudo': return '⏰';
+      case 'reroll_one': return '🎲';
+      case 'blind_swap': return '🔀';
+      case 'polish': return '✨';
+      case 'crack': return '💥';
+      default: return '🃏';
+    }
+  }
+
 
   private showModal(modalId: string): void {
     document.getElementById(modalId)?.classList.add('active');
@@ -1286,6 +1665,13 @@ export class UIManager {
     const card = this.privateInfo?.cards.find(c => c.id === cardId);
     if (!card) return;
 
+    // Check if card can be played now
+    const currentTiming = this.getCurrentCardTiming();
+    if (!this.canPlayCardNow(card, currentTiming)) {
+      this.showCardTimingError(card);
+      return;
+    }
+
     // Cards that need targeting
     const needsTargetDie = ['reroll_one', 'polish'];
     const needsTargetPlayerAndDie = ['crack', 'peek', 'blind_swap'];
@@ -1318,6 +1704,51 @@ export class UIManager {
       this.onPlayCard?.(cardId);
     }
   }
+
+  private showCardTimingError(card: Card): void {
+    let message = '';
+    switch (card.timing) {
+      case 'on_turn':
+        message = `"${card.name}" can only be played on your turn during bidding.`;
+        break;
+      case 'reaction':
+        message = `"${card.name}" can only be played as a reaction during bidding.`;
+        break;
+      case 'on_dudo':
+        message = `"${card.name}" can only be played when Dudo is called.`;
+        break;
+      default:
+        message = `"${card.name}" cannot be played right now.`;
+    }
+    
+    this.showTemporaryNotification('⚠️', message, 'warning');
+  }
+
+  private showTemporaryNotification(icon: string, message: string, type: string = 'info'): void {
+    // Remove any existing notification
+    const existing = document.querySelector('.card-notification');
+    if (existing) existing.remove();
+
+    const notification = document.createElement('div');
+    notification.className = `card-notification ${type}`;
+    notification.innerHTML = `
+      <div class="card-notification-content">
+        <div class="card-notification-icon">${icon}</div>
+        <div class="card-notification-text">${message}</div>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+      notification.style.opacity = '0';
+      notification.style.transform = 'translateX(-50%) translateY(-20px)';
+      notification.style.transition = 'all 0.3s ease-out';
+      setTimeout(() => notification.remove(), 300);
+    }, 3000);
+  }
+
 
   private showDieTargetingUI(card: Card, targetType: 'own' | 'opponent'): void {
     const title = document.getElementById('card-target-title');
@@ -1563,7 +1994,7 @@ export class UIManager {
         // For opponent dice, we need to send the index and let server resolve
         if (this.selectedTargetDieId.startsWith('opponent-')) {
           const parts = this.selectedTargetDieId.split('-');
-          additionalData = { dieIndex: parseInt(parts[2]) };
+          additionalData = { dieIndex: parseInt(parts[parts.length - 1]) };
           targetDieId = undefined; // Will be resolved server-side
         } else {
           targetDieId = this.selectedTargetDieId;
