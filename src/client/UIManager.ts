@@ -72,27 +72,17 @@ export class UIManager {
         <!-- Lobby Screen -->
         <div id="lobby-screen" class="screen">
           <div class="lobby-container">
-            <!-- Left Panel: Player Slots -->
-            <div class="panel lobby-slots-panel">
-              <h2>Player Slots</h2>
-              <div id="slot-list" class="slot-list"></div>
-              <div class="lobby-actions">
-                <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
-                <p class="waiting-text">Waiting for host to start...</p>
+            <!-- Left Column: Player Slots + Chat -->
+            <div class="lobby-left-column">
+              <div class="panel lobby-slots-panel">
+                <h2>Player Slots</h2>
+                <div id="slot-list" class="slot-list"></div>
+                <div class="lobby-actions">
+                  <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
+                  <p class="waiting-text">Waiting for host to start...</p>
+                </div>
               </div>
-            </div>
-            
-            <!-- Right Panel: Unassigned Players & Info -->
-            <div class="lobby-right-panel">
-              <div class="panel lobby-info-panel">
-                <h3>Server Info</h3>
-                <div id="server-info" class="server-info"></div>
-              </div>
-              <div class="panel lobby-unassigned-panel">
-                <h3>Unassigned Players</h3>
-                <div id="unassigned-list" class="unassigned-list"></div>
-              </div>
-              <!-- Lobby Chat Panel -->
+              <!-- Lobby Chat Panel (under player list) -->
               <div class="panel lobby-chat-panel">
                 <div class="chat-header">
                   <span class="chat-title">Chat</span>
@@ -102,6 +92,18 @@ export class UIManager {
                   <input type="text" id="lobby-chat-input" class="chat-input" placeholder="Type a message..." maxlength="200">
                   <button id="lobby-chat-send" class="chat-send-btn">Send</button>
                 </div>
+              </div>
+            </div>
+            
+            <!-- Right Panel: Server Info & Unassigned Players -->
+            <div class="lobby-right-panel">
+              <div class="panel lobby-info-panel">
+                <h3>Server Info</h3>
+                <div id="server-info" class="server-info"></div>
+              </div>
+              <div class="panel lobby-unassigned-panel">
+                <h3>Unassigned Players</h3>
+                <div id="unassigned-list" class="unassigned-list"></div>
               </div>
             </div>
           </div>
@@ -575,14 +577,22 @@ export class UIManager {
         gap: 20px;
         width: 100%;
         max-width: 1000px;
-        height: 80vh;
+        height: 85vh;
         padding: 20px;
       }
 
-      .lobby-slots-panel {
+      .lobby-left-column {
         flex: 2;
         display: flex;
         flex-direction: column;
+        gap: 16px;
+      }
+
+      .lobby-slots-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
       }
 
       .lobby-slots-panel h2 {
@@ -596,6 +606,7 @@ export class UIManager {
         flex-direction: column;
         gap: 12px;
         min-width: 280px;
+        max-width: 300px;
       }
 
       .lobby-info-panel {
@@ -708,7 +719,7 @@ export class UIManager {
 
       /* Unassigned Players List */
       .unassigned-list {
-        max-height: 120px;
+        max-height: 300px;
         overflow-y: auto;
       }
 
@@ -758,9 +769,8 @@ export class UIManager {
       }
 
       .lobby-chat-panel {
-        flex: 1;
-        min-height: 200px;
-        height: 300px;
+        height: 450px;
+        flex-shrink: 0;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         display: flex;
@@ -883,7 +893,7 @@ export class UIManager {
         position: absolute;
         bottom: 80px;
         left: 10px;
-        right: 320px;
+        right: 620px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -968,7 +978,7 @@ export class UIManager {
         position: absolute;
         bottom: 10px;
         left: 10px;
-        right: 320px;
+        right: 620px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -1005,11 +1015,11 @@ export class UIManager {
         position: absolute;
         bottom: 10px;
         right: 10px;
-        width: 300px;
+        width: 600px;
         height: 350px;
         min-width: 200px;
         min-height: 150px;
-        max-width: 600px;
+        max-width: 1600px;
         max-height: 80vh;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
