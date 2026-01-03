@@ -11,12 +11,22 @@ import {
   Card,
   Bid,
   DudoResult,
-  JontiResult
+  JontiResult,
+  SessionInfo,
+  GameSettings
 } from '../shared/types';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
 export interface NetworkClientEvents {
+  // Session management events
+  onRegistered: (identityId: string, playerName: string, previousSessionId: string | null) => void;
+  onSessionsList: (sessions: SessionInfo[], previousSessionId: string | null) => void;
+  onSessionCreated: (sessionId: string, sessionName: string) => void;
+  onSessionJoined: (sessionId: string, sessionName: string) => void;
+  onSessionLeft: () => void;
+  onSessionUpdated: (sessions: SessionInfo[], previousSessionId: string | null) => void;
+  // Game events
   onConnectionStateChange: (state: ConnectionState) => void;
   onConnectionAccepted: (playerId: string, isHost: boolean) => void;
   onGameStateUpdate: (state: PublicGameState) => void;
@@ -47,10 +57,18 @@ export class NetworkClient {
   private events: Partial<NetworkClientEvents> = {};
   private playerId: string = '';
   private isHost: boolean = false;
+  private identityId: string = '';
+  private currentSessionId: string | null = null;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
 
-  constructor() {}
+  constructor() {
+    // Load identity from localStorage if available
+    const savedIdentity = localStorage.getItem('perudo_identity');
+    if (savedIdentity) {
+      this.identityId = savedIdentity;
+    }
+  }
 
   public on<K extends keyof NetworkClientEvents>(
     event: K,
@@ -135,6 +153,55 @@ export class NetworkClient {
     console.log('Received:', message.type);
 
     switch (message.type) {
+      // Session management messages
+      case 'registered':
+        this.identityId = message.payload.identityId;
+        localStorage.setItem('perudo_identity', this.identityId);
+        this.events.onRegistered?.(
+          message.payload.identityId,
+          message.payload.playerName,
+          message.payload.previousSessionId
+        );
+        break;
+
+      case 'sessions_list':
+        this.events.onSessionsList?.(
+          message.payload.sessions,
+          message.payload.previousSessionId
+        );
+        break;
+
+      case 'session_created':
+        this.currentSessionId = message.payload.sessionId;
+        this.events.onSessionCreated?.(
+          message.payload.sessionId,
+          message.payload.sessionName
+        );
+        break;
+
+      case 'session_joined':
+        this.currentSessionId = message.payload.sessionId;
+        this.events.onSessionJoined?.(
+          message.payload.sessionId,
+          message.payload.sessionName
+        );
+        break;
+
+      case 'session_left':
+        this.currentSessionId = null;
+        this.playerId = '';
+        this.isHost = false;
+        this.events.onSessionLeft?.();
+        break;
+
+      case 'session_updated':
+        this.events.onSessionUpdated?.(
+          message.payload.sessions,
+          message.payload.previousSessionId
+        );
+        break;
+
+      // Game messages
       case 'connection_accepted':
         this.playerId = message.payload.playerId;
         this.isHost = message.payload.isHost;
@@ -271,7 +338,46 @@ export class NetworkClient {
     }
   }
 
-  // Public API methods
+  // Session management API methods
+  public register(playerName: string): void {
+    this.send({
+      type: 'register',
+      payload: { 
+        identityId: this.identityId || undefined,
+        playerName 
+      }
+    });
+  }
+
+  public listSessions(): void {
+    this.send({
+      type: 'list_sessions',
+      payload: {}
+    });
+  }
+
+  public createSession(sessionName: string, hostName: string, settings?: Partial<GameSettings>): void {
+    this.send({
+      type: 'create_session',
+      payload: { sessionName, hostName, settings }
+    });
+  }
+
+  public joinSession(sessionId: string, playerName: string): void {
+    this.send({
+      type: 'join_session',
+      payload: { sessionId, playerName }
+    });
+  }
+
+  public leaveSession(): void {
+    this.send({
+      type: 'leave_session',
+      payload: {}
+    });
+  }
+
+  // Game API methods
   public joinGame(playerName: string): void {
     this.send({
       type: 'join_game',
@@ -383,5 +489,17 @@ export class NetworkClient {
 
   public getConnectionState(): ConnectionState {
     return this.connectionState;
+  }
+
+  public getIdentityId(): string {
+    return this.identityId;
+  }
+
+  public getCurrentSessionId(): string | null {
+    return this.currentSessionId;
+  }
+
+  public isInSession(): boolean {
+    return this.currentSessionId !== null;
   }
 }

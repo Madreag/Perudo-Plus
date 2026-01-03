@@ -62,6 +62,43 @@ export class GameClient {
       }
     });
 
+    // Session management events
+    this.network.on('onRegistered', (identityId, playerName, previousSessionId) => {
+      console.log('Registered with identity:', identityId, 'previousSession:', previousSessionId);
+      this.ui.setBrowserPlayerName(playerName);
+      // Request session list
+      this.network.listSessions();
+    });
+
+    this.network.on('onSessionsList', (sessions, previousSessionId) => {
+      console.log('Sessions list:', sessions.length, 'sessions');
+      this.ui.updateSessionList(sessions, previousSessionId);
+    });
+
+    this.network.on('onSessionUpdated', (sessions, previousSessionId) => {
+      console.log('Sessions updated:', sessions.length, 'sessions');
+      this.ui.updateSessionList(sessions, previousSessionId);
+    });
+
+    this.network.on('onSessionCreated', (sessionId, sessionName) => {
+      console.log('Session created:', sessionId, sessionName);
+      // Will receive connection_accepted next
+    });
+
+    this.network.on('onSessionJoined', (sessionId, sessionName) => {
+      console.log('Joined session:', sessionId, sessionName);
+      // Will receive connection_accepted next
+    });
+
+    this.network.on('onSessionLeft', () => {
+      console.log('Left session');
+      this.ui.showScreen('browser-screen');
+      this.previousPhase = null;
+      this.music.toLobby();
+      // Request updated session list
+      this.network.listSessions();
+    });
+
     this.network.on('onConnectionAccepted', (playerId, isHost) => {
       console.log('Connection accepted, playerId:', playerId, 'isHost:', isHost);
       this.ui.setPlayerId(playerId);
@@ -132,19 +169,26 @@ export class GameClient {
 
     this.network.on('onPlayerJoined', (playerId, playerName) => {
       this.ui.addSystemMessage(`${playerName} joined the game`);
+      this.ui.showNotification('👋', `<b>${playerName}</b> joined the game`, 'success');
     });
 
     this.network.on('onPlayerLeft', (playerId, playerName) => {
       this.ui.addSystemMessage(`${playerName} left the game`);
+      this.ui.showNotification('👋', `<b>${playerName}</b> left the game`, 'warning');
     });
 
     this.network.on('onBidMade', (playerId, bid) => {
       const playerName = this.gameState?.players.find(p => p.id === playerId)?.name || 'Unknown';
+      const isOwnBid = playerId === this.network.getPlayerId();
       this.ui.addSystemMessage(`${playerName} bid ${bid.quantity}× ${bid.faceValue}s`);
+      if (!isOwnBid) {
+        this.ui.showNotification('🎲', `<b>${playerName}</b> bid ${bid.quantity}× ${bid.faceValue}s`, 'info');
+      }
     });
 
     this.network.on('onDudoCalled', (callerId, callerName) => {
       this.ui.addSystemMessage(`${callerName} called DUDO!`);
+      this.ui.showNotification('🚨', `<b>${callerName}</b> called <b>DUDO!</b>`, 'danger');
     });
 
     this.network.on('onDudoResult', (result) => {
@@ -156,6 +200,7 @@ export class GameClient {
 
     this.network.on('onJontiCalled', (callerId, callerName) => {
       this.ui.addSystemMessage(`${callerName} called JONTI!`);
+      this.ui.showNotification('🎯', `<b>${callerName}</b> called <b>JONTI!</b>`, 'warning');
     });
 
     this.network.on('onJontiResult', (result) => {
@@ -167,6 +212,7 @@ export class GameClient {
 
     this.network.on('onRoundStarted', (roundNumber) => {
       this.ui.addSystemMessage(`Round ${roundNumber} started!`);
+      this.ui.showNotification('🎲', `<b>Round ${roundNumber}</b> started!`, 'info');
       this.renderer.clearAllDice();
     });
 
@@ -203,12 +249,14 @@ export class GameClient {
 
     this.network.on('onGamePaused', (pausedBy) => {
       this.ui.addSystemMessage(`Game paused by ${pausedBy}`);
+      this.ui.showNotification('⏸️', `Game paused by <b>${pausedBy}</b>`, 'warning');
       this.ui.showPausedOverlay();
       // Music transition handled by onGameStateUpdate
     });
 
     this.network.on('onGameResumed', (resumedBy) => {
       this.ui.addSystemMessage(`Game resumed by ${resumedBy}`);
+      this.ui.showNotification('▶️', `Game resumed by <b>${resumedBy}</b>`, 'success');
       this.ui.hidePausedOverlay();
       // Music transition handled by onGameStateUpdate
     });
@@ -226,15 +274,36 @@ export class GameClient {
   }
 
   private setupUIEvents(): void {
+    // Connection - now goes to browser screen first
     this.ui.onConnect = async (host, port, playerName) => {
       try {
         await this.network.connect(host, port);
-        this.network.joinGame(playerName);
+        // Register with server and show browser
+        this.network.register(playerName);
+        this.ui.showScreen('browser-screen');
       } catch (error) {
         this.ui.showConnectionError('Failed to connect to server');
       }
     };
 
+    // Session management
+    this.ui.onCreateSession = (sessionName, hostName, settings) => {
+      this.network.createSession(sessionName, hostName, settings);
+    };
+
+    this.ui.onJoinSession = (sessionId, playerName) => {
+      this.network.joinSession(sessionId, playerName);
+    };
+
+    this.ui.onLeaveSession = () => {
+      this.network.leaveSession();
+    };
+
+    this.ui.onRefreshSessions = () => {
+      this.network.listSessions();
+    };
+
+    // Game events
     this.ui.onStartGame = () => {
       this.network.startGame();
     };

@@ -159,56 +159,6 @@ export interface JontiResult {
 // Network Messages
 // ============================================
 
-export type ClientMessageType = 
-  | 'join_game'
-  | 'start_game'
-  | 'make_bid'
-  | 'call_dudo'
-  | 'call_calza'
-  | 'call_jonti'
-  | 'play_card'
-  | 'ready_for_round'
-  | 'chat'
-  | 'new_game'
-  | 'pause_game'
-  | 'resume_game'
-  | 'kick_player'
-  | 'select_slot';
-
-export type ServerMessageType = 
-  | 'connection_accepted'
-  | 'player_joined'
-  | 'player_left'
-  | 'game_started'
-  | 'game_state_update'
-  | 'private_info'
-  | 'dice_rolled'
-  | 'bid_made'
-  | 'dudo_called'
-  | 'dudo_result'
-  | 'jonti_called'
-  | 'jonti_result'
-  | 'round_started'
-  | 'round_ended'
-  | 'game_over'
-  | 'card_played'
-  | 'card_drawn'
-  | 'error'
-  | 'chat'
-  | 'server_info'
-  | 'game_paused'
-  | 'game_resumed'
-  | 'player_kicked';
-
-export interface ClientMessage {
-  type: ClientMessageType;
-  payload: any;
-}
-
-export interface ServerMessage {
-  type: ServerMessageType;
-  payload: any;
-}
 
 // Specific message payloads
 export interface JoinGamePayload {
@@ -242,4 +192,99 @@ export interface ServerInfoPayload {
 export interface ErrorPayload {
   message: string;
   code: string;
+}
+
+// ============================================
+// Session Management Types
+// ============================================
+
+export interface SessionInfo {
+  id: string;
+  name: string;
+  hostName: string;
+  playerCount: number;
+  maxPlayers: number;
+  phase: GamePhase;
+  mode: GameMode;
+  createdAt: number;
+}
+
+export interface SessionListPayload {
+  sessions: SessionInfo[];
+  previousSessionId: string | null; // Session the player was in before disconnect
+}
+
+export interface CreateSessionPayload {
+  sessionName: string;
+  hostName: string;
+  settings?: Partial<GameSettings>;
+}
+
+export interface JoinSessionPayload {
+  sessionId: string;
+  playerName: string;
+}
+
+// Extended client message types to include session management
+export type ClientMessageType = 
+  | 'register'           // Register with the server (get player identity)
+  | 'list_sessions'      // Request session list
+  | 'create_session'     // Create a new game session
+  | 'join_session'       // Join an existing session
+  | 'leave_session'      // Leave current session (back to browser)
+  | 'join_game'
+  | 'start_game'
+  | 'make_bid'
+  | 'call_dudo'
+  | 'call_calza'
+  | 'call_jonti'
+  | 'play_card'
+  | 'ready_for_round'
+  | 'chat'
+  | 'new_game'
+  | 'pause_game'
+  | 'resume_game'
+  | 'kick_player'
+  | 'select_slot';
+
+// Extended server message types
+export type ServerMessageType = 
+  | 'registered'          // Player registered with server
+  | 'sessions_list'       // List of available sessions
+  | 'session_created'     // Session was created successfully
+  | 'session_joined'      // Successfully joined a session
+  | 'session_left'        // Left the session
+  | 'session_updated'     // Session info updated (for browser refresh)
+  | 'connection_accepted'
+  | 'player_joined'
+  | 'player_left'
+  | 'game_started'
+  | 'game_state_update'
+  | 'private_info'
+  | 'dice_rolled'
+  | 'bid_made'
+  | 'dudo_called'
+  | 'dudo_result'
+  | 'jonti_called'
+  | 'jonti_result'
+  | 'round_started'
+  | 'round_ended'
+  | 'game_over'
+  | 'card_played'
+  | 'card_drawn'
+  | 'error'
+  | 'chat'
+  | 'server_info'
+  | 'game_paused'
+  | 'game_resumed'
+  | 'player_kicked';
+
+export interface ClientMessage {
+  type: ClientMessageType;
+  payload: any;
+}
+
+export interface ServerMessage {
+  type: ServerMessageType;
+  payload: any;
 }

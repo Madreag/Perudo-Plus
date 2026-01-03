@@ -10,7 +10,10 @@ import {
   Card, 
   DudoResult,
   JontiResult,
-  GamePhase 
+  GamePhase,
+  SessionInfo,
+  GameSettings,
+  GameMode
 } from '../shared/types';
 
 export class UIManager {
@@ -25,7 +28,14 @@ export class UIManager {
   private selectedDieIds: string[] = [];
   private wasMyTurn: boolean = false;
 
-  // Callbacks
+  // Session callbacks
+  public onConnect: ((host: string, port: number, playerName: string) => void) | null = null;
+  public onCreateSession: ((sessionName: string, hostName: string, settings?: Partial<GameSettings>) => void) | null = null;
+  public onJoinSession: ((sessionId: string, playerName: string) => void) | null = null;
+  public onLeaveSession: (() => void) | null = null;
+  public onRefreshSessions: (() => void) | null = null;
+  
+  // Game callbacks
   public onStartGame: (() => void) | null = null;
   public onMakeBid: ((quantity: number, faceValue: number) => void) | null = null;
   public onCallDudo: (() => void) | null = null;
@@ -33,7 +43,6 @@ export class UIManager {
   public onPlayCard: ((cardId: string, targetPlayerId?: string, targetDieId?: string, additionalData?: any) => void) | null = null;
   public onReadyForRound: (() => void) | null = null;
   public onSendChat: ((message: string) => void) | null = null;
-  public onConnect: ((host: string, port: number, playerName: string) => void) | null = null;
   public onNewGame: (() => void) | null = null;
   public onPauseGame: (() => void) | null = null;
   public onResumeGame: (() => void) | null = null;
@@ -66,6 +75,61 @@ export class UIManager {
             </div>
             <button id="connect-btn" class="btn primary">Connect</button>
             <p id="connection-error" class="error"></p>
+          </div>
+        </div>
+
+        <!-- Server Browser Screen -->
+        <div id="browser-screen" class="screen">
+          <div class="browser-container">
+            <div class="panel browser-panel">
+              <div class="browser-header">
+                <h2>🎮 Game Sessions</h2>
+                <div class="browser-actions">
+                  <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
+                  <button id="create-session-btn" class="btn primary">+ Create Session</button>
+                </div>
+              </div>
+              <div id="session-list" class="session-list">
+                <div class="session-empty">Loading sessions...</div>
+              </div>
+              <div class="browser-footer">
+                <span id="browser-player-name" class="browser-player-name"></span>
+                <button id="browser-disconnect-btn" class="btn secondary">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Session Modal -->
+        <div id="create-session-modal" class="modal" style="display: none;">
+          <div class="modal-content create-session-content">
+            <h3>Create New Session</h3>
+            <div class="form-group">
+              <label for="session-name">Session Name:</label>
+              <input type="text" id="session-name" placeholder="My Game Room" maxlength="30">
+            </div>
+            <div class="form-group">
+              <label for="session-mode">Game Mode:</label>
+              <select id="session-mode">
+                <option value="tactical">Tactical (Recommended)</option>
+                <option value="classic">Classic</option>
+                <option value="chaos">Chaos</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="session-max-players">Max Players:</label>
+              <select id="session-max-players">
+                <option value="2">2 Players</option>
+                <option value="3">3 Players</option>
+                <option value="4">4 Players</option>
+                <option value="5">5 Players</option>
+                <option value="6" selected>6 Players</option>
+              </select>
+            </div>
+            <div class="modal-buttons">
+              <button id="cancel-create-session" class="btn secondary">Cancel</button>
+              <button id="confirm-create-session" class="btn primary">Create</button>
+            </div>
           </div>
         </div>
 
@@ -375,6 +439,48 @@ export class UIManager {
       }
     });
 
+    // Server Browser - Refresh sessions
+    document.getElementById('refresh-sessions-btn')?.addEventListener('click', () => {
+      this.onRefreshSessions?.();
+    });
+
+    // Server Browser - Create session button
+    document.getElementById('create-session-btn')?.addEventListener('click', () => {
+      this.showModal('create-session-modal');
+      // Set default session name
+      const nameInput = document.getElementById('session-name') as HTMLInputElement;
+      const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value || 'Player';
+      if (nameInput) {
+        nameInput.value = `${playerName}'s Game`;
+      }
+    });
+
+    // Server Browser - Disconnect
+    document.getElementById('browser-disconnect-btn')?.addEventListener('click', () => {
+      this.showScreen('connection-screen');
+    });
+
+    // Create Session Modal - Cancel
+    document.getElementById('cancel-create-session')?.addEventListener('click', () => {
+      this.hideModal('create-session-modal');
+    });
+
+    // Create Session Modal - Confirm
+    document.getElementById('confirm-create-session')?.addEventListener('click', () => {
+      const sessionName = (document.getElementById('session-name') as HTMLInputElement).value.trim();
+      const mode = (document.getElementById('session-mode') as HTMLSelectElement).value as GameMode;
+      const maxPlayers = parseInt((document.getElementById('session-max-players') as HTMLSelectElement).value, 10);
+      const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Host';
+
+      if (!sessionName) {
+        alert('Please enter a session name');
+        return;
+      }
+
+      this.hideModal('create-session-modal');
+      this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers });
+    });
+
     // Chat panel resize functionality
     this.setupChatResize();
   }
@@ -569,6 +675,165 @@ export class UIManager {
       .error {
         color: #e74c3c;
         margin-top: 12px;
+      }
+
+      /* Server Browser Styles */
+      .browser-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 100vh;
+        padding: 20px;
+      }
+
+      .browser-panel {
+        width: 100%;
+        max-width: 900px;
+        height: 80vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .browser-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .browser-header h2 {
+        margin: 0;
+      }
+
+      .browser-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .session-list {
+        flex: 1;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .session-empty {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+        padding: 40px;
+        font-style: italic;
+      }
+
+      .session-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: all 0.2s ease;
+      }
+
+      .session-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(78, 205, 196, 0.5);
+      }
+
+      .session-item.previous-session {
+        border-color: #f39c12;
+        background: rgba(243, 156, 18, 0.1);
+      }
+
+      .session-item.previous-session::before {
+        content: '⚠️ Rejoin: ';
+        color: #f39c12;
+        font-weight: bold;
+      }
+
+      .session-info {
+        flex: 1;
+      }
+
+      .session-name {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #4ecdc4;
+        margin-bottom: 4px;
+      }
+
+      .session-details {
+        font-size: 0.9em;
+        color: rgba(255, 255, 255, 0.7);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .session-host {
+        color: #ffe66d;
+      }
+
+      .session-players {
+        color: #2ecc71;
+      }
+
+      .session-mode {
+        color: #9b59b6;
+        text-transform: capitalize;
+      }
+
+      .session-phase {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+
+      .session-phase.lobby {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+      }
+
+      .session-phase.playing {
+        background: rgba(241, 196, 15, 0.2);
+        color: #f1c40f;
+      }
+
+      .session-phase.paused {
+        background: rgba(155, 89, 182, 0.2);
+        color: #9b59b6;
+      }
+
+      .session-join-btn {
+        padding: 10px 24px;
+      }
+
+      .browser-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .browser-player-name {
+        color: #4ecdc4;
+        font-weight: bold;
+      }
+
+      .create-session-content {
+        max-width: 400px;
+      }
+
+      .create-session-content h3 {
+        margin-bottom: 20px;
+        text-align: center;
       }
 
       /* WC3-Style Lobby Layout */
@@ -1435,6 +1700,46 @@ export class UIManager {
         color: #9b59b6;
       }
 
+      /* Info notification variant (blue) */
+      .card-notification.info {
+        border-color: #3498db;
+        background: rgba(30, 40, 55, 0.95);
+      }
+
+      .card-notification.info .card-notification-icon {
+        color: #3498db;
+      }
+
+      /* Success notification variant (green) */
+      .card-notification.success {
+        border-color: #2ecc71;
+        background: rgba(30, 50, 40, 0.95);
+      }
+
+      .card-notification.success .card-notification-icon {
+        color: #2ecc71;
+      }
+
+      /* Danger notification variant (red) */
+      .card-notification.danger {
+        border-color: #e74c3c;
+        background: rgba(50, 30, 30, 0.95);
+      }
+
+      .card-notification.danger .card-notification-icon {
+        color: #e74c3c;
+      }
+
+      /* Turn notification variant (yellow) */
+      .card-notification.turn {
+        border-color: #f1c40f;
+        background: rgba(50, 45, 25, 0.95);
+      }
+
+      .card-notification.turn .card-notification-icon {
+        color: #f1c40f;
+      }
+
       /* Active effects indicator */
       .active-effects {
         display: flex;
@@ -1830,6 +2135,75 @@ export class UIManager {
         <div>Port: <strong>${port}</strong></div>
       `;
     }
+  }
+
+  public setBrowserPlayerName(playerName: string): void {
+    const nameEl = document.getElementById('browser-player-name');
+    if (nameEl) {
+      nameEl.textContent = `Playing as: ${playerName}`;
+    }
+  }
+
+  public updateSessionList(sessions: SessionInfo[], previousSessionId: string | null): void {
+    const listEl = document.getElementById('session-list');
+    if (!listEl) return;
+
+    if (sessions.length === 0) {
+      listEl.innerHTML = '<div class="session-empty">No active sessions. Create one to get started!</div>';
+      return;
+    }
+
+    // Sort sessions - previous session first, then by creation time
+    const sortedSessions = [...sessions].sort((a, b) => {
+      if (a.id === previousSessionId) return -1;
+      if (b.id === previousSessionId) return 1;
+      return b.createdAt - a.createdAt;
+    });
+
+    listEl.innerHTML = sortedSessions.map(session => {
+      const isPrevious = session.id === previousSessionId;
+      const phaseClass = session.phase === 'lobby' ? 'lobby' : 
+                         session.phase === 'paused' ? 'paused' : 'playing';
+      const phaseText = session.phase === 'lobby' ? 'In Lobby' :
+                        session.phase === 'paused' ? 'Paused' : 'In Progress';
+      const isFull = session.playerCount >= session.maxPlayers;
+
+      return `
+        <div class="session-item ${isPrevious ? 'previous-session' : ''}" data-session-id="${session.id}">
+          <div class="session-info">
+            <div class="session-name">${this.escapeHtml(session.name)}</div>
+            <div class="session-details">
+              <span class="session-host">👑 ${this.escapeHtml(session.hostName)}</span>
+              <span class="session-players">👥 ${session.playerCount}/${session.maxPlayers}</span>
+              <span class="session-mode">${session.mode}</span>
+              <span class="session-phase ${phaseClass}">${phaseText}</span>
+            </div>
+          </div>
+          <button class="btn ${isPrevious ? 'warning' : 'primary'} session-join-btn" 
+                  data-session-id="${session.id}"
+                  ${isFull && !isPrevious ? 'disabled' : ''}>
+            ${isPrevious ? 'Rejoin' : isFull ? 'Full' : 'Join'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    // Attach click handlers to join buttons
+    listEl.querySelectorAll('.session-join-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sessionId = (e.target as HTMLElement).dataset.sessionId;
+        if (sessionId) {
+          const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Player';
+          this.onJoinSession?.(sessionId, playerName);
+        }
+      });
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   public updateGameState(state: PublicGameState): void {
@@ -2404,7 +2778,7 @@ export class UIManager {
     const icon = this.getCardIcon(cardType);
     
     // Show prominent notification
-    this.showTemporaryNotification(
+    this.showNotification(
       icon,
       `<span class="card-notification-player">${playerName}</span> played <span class="card-notification-card">${cardName}</span>`,
       'card-play'
@@ -2435,11 +2809,19 @@ export class UIManager {
 
 
   private showModal(modalId: string): void {
-    document.getElementById(modalId)?.classList.add('active');
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+    }
   }
 
   private hideModal(modalId: string): void {
-    document.getElementById(modalId)?.classList.remove('active');
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.style.display = 'none';
+      modal.classList.remove('active');
+    }
   }
 
   public showPausedOverlay(): void {
@@ -2522,10 +2904,10 @@ export class UIManager {
         message = `"${card.name}" cannot be played right now.`;
     }
     
-    this.showTemporaryNotification('⚠️', message, 'warning');
+    this.showNotification('⚠️', message, 'warning');
   }
 
-  private showTemporaryNotification(icon: string, message: string, type: string = 'info'): void {
+  public showNotification(icon: string, message: string, type: string = 'info'): void {
     // Remove any existing notification
     const existing = document.querySelector('.card-notification');
     if (existing) existing.remove();

@@ -4,7 +4,10 @@ A networked multiplayer PC game inspired by Perudo/Dudo with cards and mixed dic
 
 ## Features
 
-- **2-6 Players**: Host-client architecture with WebSocket networking
+- **Server Browser**: Browse, create, and join game sessions (like Warcraft 3 or Counter-Strike)
+- **Multiple Sessions**: Server supports multiple concurrent game sessions
+- **2-6 Players per Session**: Each session has its own host and players
+- **Session Reconnection**: Rejoin your previous session after disconnecting
 - **Mixed Dice System**: d3, d4, d6, d8, d10 with normalized face values (1-6)
 - **Card System**: Strategic single-use cards for information, bid manipulation, and more
 - **3D Visualization**: Three.js powered game table with realistic dice rendering
@@ -25,35 +28,53 @@ A networked multiplayer PC game inspired by Perudo/Dudo with cards and mixed dic
 
 ## Running the Game
 
-### Start the Server (Host)
+### Start the Server
 
-    # Default port 3000, tactical mode
+    # Default port 3000
     npm run start
 
-    # Custom port and mode
-    npm run start -- --port 8080 --mode chaos
+    # Custom port
+    npm run start -- --port 8080
 
-The server will display its public IP address for other players to connect.
+The server will display its public IP address for players to connect.
 
 ### Connecting to the Game
 
-**For the host:**
-1. Start the server as shown above
-2. Open your browser to http://localhost:3000
-3. Enter your name and click "Connect"
-4. Select a player slot in the lobby
-5. Wait for other players to join and select their slots
-6. Use the kick button to remove unwanted players if needed
-7. Click "Start Game" when ready
-
-**For other players:**
-1. Open your browser and navigate to http://<host-ip>:<port> (e.g., http://68.3.162.151:3000)
+**For all players:**
+1. Open your browser and navigate to the server URL (e.g., http://localhost:3000 or http://68.3.162.151:3000)
 2. Enter your name and click "Connect"
+3. You'll see the **Server Browser** with available game sessions
+
+**Note:** Players connecting remotely do NOT need to install or run any code - they simply open the URL in their browser!
+
+### Server Browser
+
+The server browser shows all active game sessions on the server:
+
+- **Create Session**: Click "+ Create Session" to host a new game
+  - Set a session name
+  - Choose game mode (Classic, Tactical, Chaos)
+  - Set max players (2-6)
+- **Join Session**: Click "Join" on any available session
+- **Rejoin**: If you disconnected from a session, it will be highlighted with a "Rejoin" button
+- **Session Info**: Each session shows host name, player count, game mode, and status (Lobby/In Progress/Paused)
+
+### Creating a Session (Hosting)
+
+1. Click "+ Create Session" in the server browser
+2. Enter a session name and configure settings
+3. Click "Create" - you'll automatically join as host
+4. Select a player slot in the lobby
+5. Wait for other players to join
+6. Click "Start Game" when ready
+
+### Joining a Session
+
+1. Browse available sessions in the server browser
+2. Click "Join" on the session you want to join
 3. Select an available player slot in the lobby
 4. Chat with other players while waiting
 5. Wait for the host to start the game
-
-**Note:** Players connecting remotely do NOT need to install or run any code - they simply open the URL in their browser!
 
 ### Lobby Features
 
@@ -66,10 +87,12 @@ The server will display its public IP address for other players to connect.
 ### Reconnection
 
 If you get disconnected during a game:
-1. Refresh the page or navigate back to the game URL
+1. Refresh the page or navigate back to the server URL
 2. Enter the **same name** you used before
-3. Click "Connect" to rejoin the game in progress
-4. Your dice and cards will be restored
+3. Click "Connect" to reach the server browser
+4. Your previous session will be highlighted with a "Rejoin" button
+5. Click "Rejoin" to return to your game in progress
+6. Your dice and cards will be restored
 
 ### Development Mode
 
@@ -161,13 +184,16 @@ If you get disconnected during a game:
     ├── src/
     │   ├── server/
     │   │   ├── index.ts          # Server entry point
-    │   │   └── GameServer.ts     # WebSocket server & game logic
+    │   │   ├── SessionManager.ts # Session browser & routing
+    │   │   ├── GameSession.ts    # Individual game session logic
+    │   │   └── GameServer.ts     # Legacy single-game server
     │   ├── client/
     │   │   ├── index.ts          # Client entry point
     │   │   ├── GameClient.ts     # Main client application
     │   │   ├── NetworkClient.ts  # WebSocket client
     │   │   ├── GameRenderer.ts   # Three.js 3D rendering
-    │   │   └── UIManager.ts      # HTML UI overlay
+    │   │   ├── UIManager.ts      # HTML UI overlay
+    │   │   └── MusicManager.ts   # Background music control
     │   └── shared/
     │       ├── index.ts          # Shared exports
     │       ├── types.ts          # TypeScript interfaces
@@ -200,7 +226,10 @@ If you get disconnected during a game:
 - **Backend**: Node.js + TypeScript + Express + ws (WebSocket)
 - **Frontend**: Three.js + TypeScript + Vite
 - **Networking**: WebSocket with JSON messages
-- **Architecture**: Host-Client (server is also a player)
+- **Architecture**: Session-based multiplayer
+  - **SessionManager**: Handles player registration, session browser, and routing
+  - **GameSession**: Individual game instances with isolated state
+  - **Multiple concurrent sessions**: Server supports many games simultaneously
 
 ## License
 
