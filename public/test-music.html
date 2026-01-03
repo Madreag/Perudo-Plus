@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Manager Test</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1a2e;
+      color: white;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #4a90d9;
+      margin-bottom: 30px;
+    }
+    .section {
+      background: #16213e;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      margin-top: 0;
+      color: #e94560;
+    }
+    button {
+      background: #4a90d9;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #357abd;
+    }
+    button:active {
+      background: #2a5f8f;
+    }
+    .status {
+      background: #0f3460;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 20px;
+      font-family: monospace;
+    }
+    .status-item {
+      margin: 5px 0;
+    }
+    .volume-control {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .volume-control input {
+      flex: 1;
+      height: 8px;
+    }
+    .volume-value {
+      min-width: 50px;
+      text-align: right;
+    }
+    .info {
+      background: #1a1a2e;
+      border-left: 4px solid #4a90d9;
+      padding: 15px;
+      margin-top: 20px;
+    }
+    .log {
+      background: #0a0a15;
+      padding: 15px;
+      border-radius: 5px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .log-entry {
+      margin: 3px 0;
+      padding: 3px 0;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .log-entry.info { color: #4a90d9; }
+    .log-entry.warn { color: #f39c12; }
+    .log-entry.error { color: #e94560; }
+  </style>
+</head>
+<body>
+  <h1>🎵 Music Manager Test</h1>
+  
+  <div class="info">
+    <strong>Note:</strong> Click anywhere on the page first to unlock audio (browser autoplay policy).
+  </div>
+
+  <div class="section">
+    <h2>State Transitions</h2>
+    <p>Test the different music states:</p>
+    <button onclick="toLobby()">🏠 To Lobby</button>
+    <button onclick="toMatchStart()">🎮 Match Start</button>
+    <button onclick="toPaused()">⏸️ Pause Game</button>
+    <button onclick="toResumed()">▶️ Resume Game</button>
+    <button onclick="toMatchEnd()">🏁 Match End</button>
+  </div>
+
+  <div class="section">
+    <h2>Volume Control</h2>
+    <div class="volume-control">
+      <span>🔈</span>
+      <input type="range" id="volumeSlider" min="0" max="100" value="50" oninput="setVolume(this.value)">
+      <span class="volume-value" id="volumeValue">50%</span>
+    </div>
+    <div style="margin-top: 15px;">
+      <button onclick="toggleMute()">🔇 Toggle Mute</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Status</h2>
+    <div class="status">
+      <div class="status-item">Current State: <strong id="currentState">-</strong></div>
+      <div class="status-item">Audio Unlocked: <strong id="audioUnlocked">-</strong></div>
+      <div class="status-item">Volume: <strong id="currentVolume">-</strong></div>
+      <div class="status-item">Muted: <strong id="isMuted">-</strong></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Console Log</h2>
+    <div class="log" id="logContainer"></div>
+  </div>
+
+  <script type="module">
+    import { MusicManager } from '../src/client/MusicManager.ts';
+    
+    // Get the music manager instance
+    const music = MusicManager.getInstance();
+    
+    // Expose to window for button handlers
+    window.musicManager = music;
+    
+    // Override console.log to capture MusicManager logs
+    const originalLog = console.log;
+    const originalError = console.error;
+    const logContainer = document.getElementById('logContainer');
+    
+    function addLogEntry(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+    
+    console.log = function(...args) {
+      originalLog.apply(console, args);
+      const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+      if (message.includes('MusicManager')) {
+        addLogEntry(message, 'info');
+      }
+    };
+    
+    console.error = function(...args) {
+      originalError.apply(console, args);
+      const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+      addLogEntry(message, 'error');
+    };
+    
+    // Update status display
+    function updateStatus() {
+      document.getElementById('currentState').textContent = music.getCurrentState();
+      document.getElementById('audioUnlocked').textContent = music.isAudioUnlocked() ? 'Yes ✓' : 'No ✗';
+      document.getElementById('currentVolume').textContent = Math.round(music.getVolume() * 100) + '%';
+      document.getElementById('isMuted').textContent = music.isMuted() ? 'Yes' : 'No';
+    }
+    
+    // Update status every 500ms
+    setInterval(updateStatus, 500);
+    updateStatus();
+    
+    // Button handlers
+    window.toLobby = function() {
+      music.toLobby();
+      updateStatus();
+    };
+    
+    window.toMatchStart = function() {
+      music.toMatchStart();
+      updateStatus();
+    };
+    
+    window.toPaused = function() {
+      music.toPaused();
+      updateStatus();
+    };
+    
+    window.toResumed = function() {
+      music.toResumed();
+      updateStatus();
+    };
+    
+    window.toMatchEnd = function() {
+      music.toMatchEnd();
+      updateStatus();
+    };
+    
+    window.setVolume = function(value) {
+      const volume = value / 100;
+      music.setVolume(volume);
+      document.getElementById('volumeValue').textContent = value + '%';
+      updateStatus();
+    };
+    
+    window.toggleMute = function() {
+      music.toggleMute();
+      updateStatus();
+    };
+    
+    addLogEntry('Music Manager Test Page Loaded', 'info');
+    addLogEntry('Click anywhere to unlock audio', 'warn');
+  </script>
+</body>
+</html>

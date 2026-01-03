@@ -5,14 +5,17 @@
 import { NetworkClient } from './NetworkClient';
 import { GameRenderer } from './GameRenderer';
 import { UIManager } from './UIManager';
+import { MusicManager } from './MusicManager';
 import { PublicGameState, Die, Card, DudoResult, JontiResult } from '../shared/types';
 
 export class GameClient {
   private network: NetworkClient;
   private renderer: GameRenderer;
   private ui: UIManager;
+  private music: MusicManager;
   private gameState: PublicGameState | null = null;
   private playerIndexMap: Map<string, number> = new Map();
+  private previousPhase: string | null = null;
 
   constructor(container: HTMLElement) {
     // Create UI container
@@ -31,6 +34,7 @@ export class GameClient {
     this.network = new NetworkClient();
     this.renderer = new GameRenderer(renderContainer);
     this.ui = new UIManager(uiContainer);
+    this.music = MusicManager.getInstance();
 
     // Expose UI for card onclick handlers
     window.gameUI = this.ui;
@@ -38,6 +42,9 @@ export class GameClient {
     // Setup event handlers
     this.setupNetworkEvents();
     this.setupUIEvents();
+    
+    // Start with lobby music (will play after user interaction unlocks audio)
+    this.music.toLobby();
   }
 
   private setupNetworkEvents(): void {
@@ -48,6 +55,8 @@ export class GameClient {
       } else if (state === 'disconnected') {
         this.ui.showScreen('connection-screen');
         this.ui.showConnectionError('Disconnected from server');
+        // Go back to lobby music when disconnected
+        this.music.toLobby();
       }
     });
 
@@ -62,11 +71,37 @@ export class GameClient {
       this.updatePlayerIndexMap();
       this.ui.updateGameState(state);
 
-      // Switch screens based on phase
-      if (state.phase === 'lobby') {
-        this.ui.showScreen('lobby-screen');
+      // Handle music state transitions based on game phase changes
+      if (this.previousPhase !== state.phase) {
+        if (state.phase === 'lobby') {
+          this.ui.showScreen('lobby-screen');
+          // Transition to lobby music
+          this.music.toLobby();
+        } else if (state.phase === 'rolling' || state.phase === 'bidding' || state.phase === 'dudo_called' || state.phase === 'round_end') {
+          this.ui.showScreen('game-screen');
+          // Handle music based on previous state
+          if (this.previousPhase === 'lobby' || this.previousPhase === null) {
+            this.music.toMatchStart();
+          } else if (this.previousPhase === 'paused') {
+            this.music.toResumed();
+          }
+        } else if (state.phase === 'game_over') {
+          this.ui.showScreen('game-screen');
+          // Transition back to lobby music when game ends
+          this.music.toMatchEnd();
+        } else if (state.phase === 'paused') {
+          this.ui.showScreen('game-screen');
+          // Transition to paused music state
+          this.music.toPaused();
+        }
+        this.previousPhase = state.phase;
       } else {
-        this.ui.showScreen('game-screen');
+        // Switch screens based on phase (no music change)
+        if (state.phase === 'lobby') {
+          this.ui.showScreen('lobby-screen');
+        } else {
+          this.ui.showScreen('game-screen');
+        }
       }
     });
 
@@ -135,6 +170,8 @@ export class GameClient {
 
     this.network.on('onGameOver', (winnerId, winnerName) => {
       this.ui.showGameOver(winnerName);
+      // Transition back to lobby music when game ends
+      this.music.toMatchEnd();
     });
 
     this.network.on('onCardPlayed', (playerId, cardType, cardName, result) => {
@@ -162,11 +199,13 @@ export class GameClient {
     this.network.on('onGamePaused', (pausedBy) => {
       this.ui.addSystemMessage(`Game paused by ${pausedBy}`);
       this.ui.showPausedOverlay();
+      // Music transition handled by onGameStateUpdate
     });
 
     this.network.on('onGameResumed', (resumedBy) => {
       this.ui.addSystemMessage(`Game resumed by ${resumedBy}`);
       this.ui.hidePausedOverlay();
+      // Music transition handled by onGameStateUpdate
     });
 
     this.network.on('onError', (message, code) => {
@@ -238,5 +277,6 @@ export class GameClient {
   public dispose(): void {
     this.network.disconnect();
     this.renderer.dispose();
+    this.music.dispose();
   }
 }

@@ -4,6 +4,7 @@ import path from 'path';
 export default defineConfig({
   root: './public',
   base: '/',
+  publicDir: '../assets',
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
@@ -33,6 +34,6 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['three']
+    include: ['three', 'howler']
   }
 });
