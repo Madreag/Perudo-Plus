@@ -29,6 +29,7 @@ export class UIManager {
   private selectedTargetDieId: string | null = null;
   private selectedDieIds: string[] = [];
   private wasMyTurn: boolean = false;
+  private keyboardBidDigits: string = ""; // Track typed digits for keyboard bid entry
 
   // Volume callback
   public onVolumeChange: ((volume: number) => void) | null = null;
@@ -650,6 +651,7 @@ export class UIManager {
 
     // Chat panel resize functionality
     this.setupChatResize();
+    this.setupKeyboardBidInput();
   }
 
   private setupChatResize(): void {
@@ -726,6 +728,124 @@ export class UIManager {
     resizeHandle.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
+  }
+
+  private setupKeyboardBidInput(): void {
+    // Handle keyboard input for bid entry
+    document.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Don't capture keyboard input if user is typing in an input field or textarea
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.tagName === 'SELECT'
+      )) {
+        return;
+      }
+
+      // Only process keyboard bids during bidding phase and when it's the player's turn
+      if (!this.gameState || this.gameState.phase !== 'bidding') {
+        return;
+      }
+
+      const currentPlayer = this.gameState.players[this.gameState.currentTurnIndex];
+      const isMyTurn = currentPlayer?.id === this.playerId;
+      if (!isMyTurn) {
+        return;
+      }
+
+      // Handle number keys (0-9)
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        
+        // If we already have 2 digits, start over
+        if (this.keyboardBidDigits.length >= 2) {
+          this.keyboardBidDigits = '';
+        }
+        
+        this.keyboardBidDigits += e.key;
+        
+        // Update the UI based on typed digits
+        this.updateBidInputsFromKeyboard();
+      }
+      
+      // Handle Enter key to submit bid
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        
+        // Only submit if we have valid bid values
+        const quantityInput = document.getElementById('bid-quantity') as HTMLInputElement;
+        const faceInput = document.getElementById('bid-face') as HTMLSelectElement;
+        
+        if (quantityInput && faceInput) {
+          const quantity = parseInt(quantityInput.value, 10);
+          const faceValue = parseInt(faceInput.value, 10);
+          
+          if (quantity > 0 && faceValue >= 1 && faceValue <= 6) {
+            this.onMakeBid?.(quantity, faceValue);
+            this.keyboardBidDigits = ''; // Reset after submission
+          }
+        }
+      }
+      
+      // Handle Backspace to clear keyboard input
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (this.keyboardBidDigits.length > 0) {
+          this.keyboardBidDigits = this.keyboardBidDigits.slice(0, -1);
+          this.updateBidInputsFromKeyboard();
+        }
+      }
+      
+      // Handle Escape to clear keyboard input
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.keyboardBidDigits = '';
+        // Don't update inputs on escape, just clear the buffer
+      }
+    });
+  }
+
+  private updateBidInputsFromKeyboard(): void {
+    const quantityInput = document.getElementById('bid-quantity') as HTMLInputElement;
+    const faceInput = document.getElementById('bid-face') as HTMLSelectElement;
+    
+    if (!quantityInput || !faceInput) return;
+    
+    if (this.keyboardBidDigits.length >= 1) {
+      // First digit is quantity
+      const quantity = parseInt(this.keyboardBidDigits[0], 10);
+      // Quantity must be at least 1
+      quantityInput.value = quantity === 0 ? '10' : quantity.toString();
+    }
+    
+    if (this.keyboardBidDigits.length >= 2) {
+      // Second digit is face value (1-6)
+      let faceValue = parseInt(this.keyboardBidDigits[1], 10);
+      // Clamp face value to 1-6, treat 0 as 6, and 7-9 as 1-3 (wrap around)
+      if (faceValue === 0) {
+        faceValue = 6;
+      } else if (faceValue > 6) {
+        faceValue = faceValue - 6; // 7->1, 8->2, 9->3
+      }
+      faceInput.value = faceValue.toString();
+    }
+    
+    // Add visual feedback to show keyboard input is active
+    this.showKeyboardBidFeedback();
+  }
+
+  private showKeyboardBidFeedback(): void {
+    const bidControls = document.getElementById('bid-controls');
+    if (!bidControls) return;
+    
+    // Add a brief highlight effect
+    bidControls.classList.add('keyboard-input-active');
+    
+    // Remove the class after a short delay
+    setTimeout(() => {
+      bidControls.classList.remove('keyboard-input-active');
+    }, 200);
   }
 
   private injectStyles(): void {
@@ -1839,6 +1959,17 @@ export class UIManager {
         display: flex;
         justify-content: space-between;
         align-items: center;
+      }
+
+      .bid-controls.keyboard-input-active {
+        box-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+        border-color: rgba(100, 200, 255, 0.5);
+      }
+
+      .bid-controls.keyboard-input-active .bid-inputs input,
+      .bid-controls.keyboard-input-active .bid-inputs select {
+        border-color: rgba(100, 200, 255, 0.7);
+        background: rgba(100, 200, 255, 0.1);
       }
 
       .bid-inputs {

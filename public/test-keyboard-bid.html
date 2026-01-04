@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Keyboard Bid Input</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 20px;
+        }
+        .bid-controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .bid-controls.keyboard-input-active {
+            box-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+            border-color: rgba(100, 200, 255, 0.5);
+        }
+        .bid-controls.keyboard-input-active input,
+        .bid-controls.keyboard-input-active select {
+            border-color: rgba(100, 200, 255, 0.7);
+            background: rgba(100, 200, 255, 0.1);
+        }
+        .bid-inputs {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .bid-inputs input, .bid-inputs select {
+            padding: 8px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 16px;
+            width: 80px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn.primary {
+            background: #4ecdc4;
+            color: #000;
+        }
+        .instructions {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+        }
+        .instructions ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎲 Keyboard Bid Input Test</h1>
+    
+    <div id="bid-controls" class="bid-controls">
+        <div class="bid-inputs">
+            <label>Quantity:</label>
+            <input type="number" id="bid-quantity" min="1" value="1">
+            <label>Face:</label>
+            <select id="bid-face">
+                <option value="1">1 (Wild)</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+            </select>
+        </div>
+        <button id="bid-btn" class="btn primary">Make Bid</button>
+    </div>
+    
+    <div class="instructions">
+        <h3>Instructions:</h3>
+        <ul>
+            <li>Type a number (1-9) to set the quantity</li>
+            <li>Type a second number (1-6) to set the face value</li>
+            <li>Press Enter to submit the bid</li>
+            <li>If you type more than 2 numbers, it starts over</li>
+            <li>Press Backspace to delete the last digit</li>
+            <li>Press Escape to clear the input buffer</li>
+            <li>Typing 0 for quantity sets it to 10</li>
+            <li>Face values 7-9 wrap around (7→1, 8→2, 9→3), 0→6</li>
+        </ul>
+    </div>
+    
+    <div class="log" id="log">
+        <div class="log-entry">Ready for keyboard input...</div>
+    </div>
+
+    <script>
+        let keyboardBidDigits = '';
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateBidInputsFromKeyboard() {
+            const quantityInput = document.getElementById('bid-quantity');
+            const faceInput = document.getElementById('bid-face');
+            
+            if (keyboardBidDigits.length >= 1) {
+                const quantity = parseInt(keyboardBidDigits[0], 10);
+                quantityInput.value = quantity === 0 ? '10' : quantity.toString();
+                log(`Quantity set to: ${quantityInput.value}`);
+            }
+            
+            if (keyboardBidDigits.length >= 2) {
+                let faceValue = parseInt(keyboardBidDigits[1], 10);
+                if (faceValue === 0) {
+                    faceValue = 6;
+                } else if (faceValue > 6) {
+                    faceValue = faceValue - 6;
+                }
+                faceInput.value = faceValue.toString();
+                log(`Face value set to: ${faceValue}`);
+            }
+            
+            showKeyboardBidFeedback();
+        }
+        
+        function showKeyboardBidFeedback() {
+            const bidControls = document.getElementById('bid-controls');
+            bidControls.classList.add('keyboard-input-active');
+            setTimeout(() => {
+                bidControls.classList.remove('keyboard-input-active');
+            }, 200);
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            const activeElement = document.activeElement;
+            if (activeElement && (
+                activeElement.tagName === 'INPUT' || 
+                activeElement.tagName === 'TEXTAREA' ||
+                activeElement.tagName === 'SELECT'
+            )) {
+                return;
+            }
+            
+            if (e.key >= '0' && e.key <= '9') {
+                e.preventDefault();
+                
+                if (keyboardBidDigits.length >= 2) {
+                    keyboardBidDigits = '';
+                    log('Buffer reset (more than 2 digits)');
+                }
+                
+                keyboardBidDigits += e.key;
+                log(`Typed: ${e.key} | Buffer: "${keyboardBidDigits}"`);
+                
+                updateBidInputsFromKeyboard();
+            }
+            
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                
+                const quantityInput = document.getElementById('bid-quantity');
+                const faceInput = document.getElementById('bid-face');
+                
+                const quantity = parseInt(quantityInput.value, 10);
+                const faceValue = parseInt(faceInput.value, 10);
+                
+                if (quantity > 0 && faceValue >= 1 && faceValue <= 6) {
+                    log(`BID SUBMITTED: ${quantity}× ${faceValue}s`);
+                    keyboardBidDigits = '';
+                }
+            }
+            
+            if (e.key === 'Backspace') {
+                e.preventDefault();
+                if (keyboardBidDigits.length > 0) {
+                    keyboardBidDigits = keyboardBidDigits.slice(0, -1);
+                    log(`Backspace | Buffer: "${keyboardBidDigits}"`);
+                    updateBidInputsFromKeyboard();
+                }
+            }
+            
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                keyboardBidDigits = '';
+                log('Buffer cleared (Escape)');
+            }
+        });
+        
+        document.getElementById('bid-btn').addEventListener('click', () => {
+            const quantity = document.getElementById('bid-quantity').value;
+            const faceValue = document.getElementById('bid-face').value;
+            log(`BID SUBMITTED (click): ${quantity}× ${faceValue}s`);
+        });
+    </script>
+</body>
+</html>
