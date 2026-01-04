@@ -15,7 +15,7 @@ export class MusicManager {
   
   private currentState: MusicState = 'lobby';
   private isUnlocked: boolean = false;
-  private volume: number = 0.5; // Default 50%
+  private volume: number = 0.25; // Default 25%
   private matchPausedPosition: number = 0;
   private isMutedState: boolean = false;
   private lobbyFadeTimeout: ReturnType<typeof setTimeout> | null = null;

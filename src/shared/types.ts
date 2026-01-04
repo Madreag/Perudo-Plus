@@ -225,6 +225,11 @@ export interface JoinSessionPayload {
   playerName: string;
 }
 
+export interface UpdateSessionSettingsPayload {
+  mode?: GameMode;
+  maxPlayers?: number;
+}
+
 // Extended client message types to include session management
 export type ClientMessageType = 
   | 'register'           // Register with the server (get player identity)
@@ -232,6 +237,8 @@ export type ClientMessageType =
   | 'create_session'     // Create a new game session
   | 'join_session'       // Join an existing session
   | 'leave_session'      // Leave current session (back to browser)
+  | 'update_session_settings' // Update session settings (host only)
+  | 'delete_session'     // Delete the session (host only)
   | 'join_game'
   | 'start_game'
   | 'make_bid'
@@ -255,6 +262,8 @@ export type ServerMessageType =
   | 'session_joined'      // Successfully joined a session
   | 'session_left'        // Left the session
   | 'session_updated'     // Session info updated (for browser refresh)
+  | 'session_settings_updated' // Session settings changed by host
+  | 'session_deleted'     // Session was deleted by host
   | 'connection_accepted'
   | 'player_joined'
   | 'player_left'

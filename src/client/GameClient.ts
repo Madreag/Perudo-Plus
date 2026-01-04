@@ -99,6 +99,21 @@ export class GameClient {
       this.network.listSessions();
     });
 
+    this.network.on('onSessionSettingsUpdated', (settings) => {
+      console.log('Session settings updated:', settings);
+      this.ui.updateSessionSettings(settings);
+    });
+
+    this.network.on('onSessionDeleted', () => {
+      console.log('Session deleted by host');
+      this.ui.showScreen('browser-screen');
+      this.ui.showNotification('🗑️', 'Session was deleted by the host', 'warning');
+      this.previousPhase = null;
+      this.music.toLobby();
+      // Request updated session list
+      this.network.listSessions();
+    });
+
     this.network.on('onConnectionAccepted', (playerId, isHost) => {
       console.log('Connection accepted, playerId:', playerId, 'isHost:', isHost);
       this.ui.setPlayerId(playerId);
@@ -274,9 +289,18 @@ export class GameClient {
   }
 
   private setupUIEvents(): void {
-    // Connection - now goes to browser screen first
-    this.ui.onConnect = async (host, port, playerName) => {
+    // Volume control
+    this.ui.onVolumeChange = (volume) => {
+      this.music.setVolume(volume);
+    };
+
+    // Connection - auto-detect host/port from current URL
+    this.ui.onConnect = async (playerName) => {
       try {
+        // Use current page's hostname and port
+        const host = window.location.hostname || 'localhost';
+        const port = parseInt(window.location.port, 10) || 3000;
+        
         await this.network.connect(host, port);
         // Register with server and show browser
         this.network.register(playerName);
@@ -301,6 +325,14 @@ export class GameClient {
 
     this.ui.onRefreshSessions = () => {
       this.network.listSessions();
+    };
+
+    this.ui.onUpdateSessionSettings = (settings) => {
+      this.network.updateSessionSettings(settings);
+    };
+
+    this.ui.onDeleteSession = () => {
+      this.network.deleteSession();
     };
 
     // Game events

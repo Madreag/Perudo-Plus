@@ -63,13 +63,17 @@ export class GameSession {
   private deck: Card[] = [];
   private sendToClient: (ws: WebSocket, message: ServerMessage) => void;
   private onSessionUpdate: () => void;
+  private publicIp: string;
+  private port: number;
 
   constructor(
     id: string,
     name: string,
     settings: GameSettings,
     sendToClient: (ws: WebSocket, message: ServerMessage) => void,
-    onSessionUpdate: () => void
+    onSessionUpdate: () => void,
+    publicIp: string,
+    port: number
   ) {
     this.id = id;
     this.name = name;
@@ -77,6 +81,8 @@ export class GameSession {
     this.gameState = createGameState(settings);
     this.sendToClient = sendToClient;
     this.onSessionUpdate = onSessionUpdate;
+    this.publicIp = publicIp;
+    this.port = port;
   }
 
   public getSessionInfo(): SessionInfo {
@@ -95,6 +101,38 @@ export class GameSession {
 
   public getGameState(): GameState {
     return this.gameState;
+  }
+
+  public getSettings(): GameSettings {
+    return this.gameState.settings;
+  }
+
+  public updateSettings(settings: { mode?: string; maxPlayers?: number }): void {
+    if (settings.mode) {
+      this.gameState.settings.mode = settings.mode as 'classic' | 'tactical' | 'chaos';
+    }
+    if (settings.maxPlayers !== undefined) {
+      const newMaxPlayers = settings.maxPlayers;
+      this.gameState.settings.maxPlayers = newMaxPlayers;
+      
+      // Unassign players from slots that no longer exist
+      this.gameState = {
+        ...this.gameState,
+        players: this.gameState.players.map(p => {
+          if (p.slot !== null && p.slot >= newMaxPlayers) {
+            return { ...p, slot: null };
+          }
+          return p;
+        })
+      };
+    }
+  }
+
+  public isPlayerHost(clientId: string): boolean {
+    const client = this.clients.get(clientId);
+    if (!client) return false;
+    const player = this.gameState.players.find(p => p.id === client.playerId);
+    return player?.isHost || false;
   }
 
   public getConnectedPlayerCount(): number {
@@ -196,6 +234,17 @@ export class GameSession {
           }
         });
 
+        // Send server info
+        this.send(ws, {
+          type: 'server_info',
+          payload: {
+            publicIp: this.publicIp,
+            port: this.port,
+            playerCount: this.gameState.players.length,
+            maxPlayers: this.gameState.settings.maxPlayers
+          }
+        });
+
         // Send private info if game is in progress
         if (this.gameState.phase !== 'lobby' && this.gameState.phase !== 'game_over') {
           this.send(ws, {
@@ -242,6 +291,17 @@ export class GameSession {
           playerId: player.id,
           isHost,
           gameState: toPublicGameState(this.gameState)
+        }
+      });
+
+      // Send server info
+      this.send(ws, {
+        type: 'server_info',
+        payload: {
+          publicIp: this.publicIp,
+          port: this.port,
+          playerCount: this.gameState.players.length,
+          maxPlayers: this.gameState.settings.maxPlayers
         }
       });
 
@@ -1015,6 +1075,13 @@ export class GameSession {
     this.send(ws, {
       type: 'error',
       payload: { message, code }
+    });
+  }
+
+  public broadcastGameState(): void {
+    this.broadcast({
+      type: 'game_state_update',
+      payload: { gameState: toPublicGameState(this.gameState) }
     });
   }
 

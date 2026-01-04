@@ -26,6 +26,8 @@ export interface NetworkClientEvents {
   onSessionJoined: (sessionId: string, sessionName: string) => void;
   onSessionLeft: () => void;
   onSessionUpdated: (sessions: SessionInfo[], previousSessionId: string | null) => void;
+  onSessionSettingsUpdated: (settings: { mode: string; maxPlayers: number }) => void;
+  onSessionDeleted: () => void;
   // Game events
   onConnectionStateChange: (state: ConnectionState) => void;
   onConnectionAccepted: (playerId: string, isHost: boolean) => void;
@@ -201,6 +203,15 @@ export class NetworkClient {
         );
         break;
 
+      case 'session_settings_updated':
+        this.events.onSessionSettingsUpdated?.(message.payload);
+        break;
+
+      case 'session_deleted':
+        this.currentSessionId = null;
+        this.events.onSessionDeleted?.();
+        break;
+
       // Game messages
       case 'connection_accepted':
         this.playerId = message.payload.playerId;
@@ -373,6 +384,20 @@ export class NetworkClient {
   public leaveSession(): void {
     this.send({
       type: 'leave_session',
+      payload: {}
+    });
+  }
+
+  public updateSessionSettings(settings: { mode?: string; maxPlayers?: number }): void {
+    this.send({
+      type: 'update_session_settings',
+      payload: settings
+    });
+  }
+
+  public deleteSession(): void {
+    this.send({
+      type: 'delete_session',
       payload: {}
     });
   }

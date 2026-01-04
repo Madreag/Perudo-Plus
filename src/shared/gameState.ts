@@ -149,11 +149,15 @@ export function startGame(state: GameState): GameState {
   }
 
   let newState = initializePlayerDice(state);
+  
+  // Randomize starting player
+  const randomStartIndex = Math.floor(Math.random() * newState.players.length);
+  
   newState = {
     ...newState,
     phase: 'rolling',
     roundNumber: 1,
-    currentTurnIndex: 0,
+    currentTurnIndex: randomStartIndex,
     currentBid: null,
     previousBids: []
   };

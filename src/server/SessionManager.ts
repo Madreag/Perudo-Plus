@@ -146,6 +146,12 @@ export class SessionManager {
       case 'leave_session':
         this.handleLeaveSession(clientId);
         return;
+      case 'update_session_settings':
+        this.handleUpdateSessionSettings(clientId, message.payload);
+        return;
+      case 'delete_session':
+        this.handleDeleteSession(clientId);
+        return;
     }
 
     // Forward game messages to the appropriate session
@@ -225,7 +231,9 @@ export class SessionManager {
       payload.sessionName,
       settings,
       (ws, msg) => this.sendToClient(ws, msg),
-      () => this.broadcastSessionUpdate()
+      () => this.broadcastSessionUpdate(),
+      this.publicIp,
+      this.port
     );
 
     this.sessions.set(sessionId, session);
@@ -325,6 +333,89 @@ export class SessionManager {
     this.broadcastSessionUpdate();
   }
 
+  private handleUpdateSessionSettings(clientId: string, payload: { mode?: string; maxPlayers?: number }): void {
+    const client = this.clients.get(clientId);
+    if (!client || !client.currentSessionId) {
+      this.sendError(client?.ws!, 'Not in a session', 'NOT_IN_SESSION');
+      return;
+    }
+
+    const session = this.sessions.get(client.currentSessionId);
+    if (!session) {
+      this.sendError(client.ws, 'Session not found', 'SESSION_NOT_FOUND');
+      return;
+    }
+
+    // Check if client is the host
+    if (!session.isPlayerHost(clientId)) {
+      this.sendError(client.ws, 'Only the host can change settings', 'NOT_HOST');
+      return;
+    }
+
+    // Update settings
+    session.updateSettings(payload);
+
+    // Broadcast updated settings to all players in the session
+    const updatedSettings = session.getSettings();
+    this.broadcastToSession(client.currentSessionId, {
+      type: 'session_settings_updated',
+      payload: {
+        mode: updatedSettings.mode,
+        maxPlayers: updatedSettings.maxPlayers
+      }
+    });
+
+    // Broadcast game state update so UI reflects new settings (e.g., slot count)
+    session.broadcastGameState();
+
+    console.log(`Session settings updated by ${client.playerName}: mode=${payload.mode}, maxPlayers=${payload.maxPlayers}`);
+    this.broadcastSessionUpdate();
+  }
+
+  private handleDeleteSession(clientId: string): void {
+    const client = this.clients.get(clientId);
+    if (!client || !client.currentSessionId) {
+      this.sendError(client?.ws!, 'Not in a session', 'NOT_IN_SESSION');
+      return;
+    }
+
+    const sessionId = client.currentSessionId;
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      this.sendError(client.ws, 'Session not found', 'SESSION_NOT_FOUND');
+      return;
+    }
+
+    // Check if client is the host
+    if (!session.isPlayerHost(clientId)) {
+      this.sendError(client.ws, 'Only the host can delete the session', 'NOT_HOST');
+      return;
+    }
+
+    const sessionName = session.getSessionInfo().name;
+
+    // Notify all players in the session and return them to browser
+    this.broadcastToSession(sessionId, {
+      type: 'session_deleted',
+      payload: {}
+    });
+
+    // Clear session references for all clients in this session
+    for (const [cid, c] of this.clients.entries()) {
+      if (c.currentSessionId === sessionId) {
+        c.currentSessionId = null;
+        // Clear identity-to-session mapping
+        this.identityToSession.delete(c.identityId);
+      }
+    }
+
+    // Delete the session
+    this.sessions.delete(sessionId);
+
+    console.log(`Session "${sessionName}" deleted by ${client.playerName}`);
+    this.broadcastSessionUpdate();
+  }
+
   private handleDisconnect(clientId: string): void {
     const client = this.clients.get(clientId);
     if (!client) return;
@@ -383,6 +474,14 @@ export class SessionManager {
 
   private send(ws: WebSocket, message: ServerMessage): void {
     this.sendToClient(ws, message);
+  }
+
+  private broadcastToSession(sessionId: string, message: ServerMessage): void {
+    for (const [clientId, client] of this.clients.entries()) {
+      if (client.currentSessionId === sessionId) {
+        this.send(client.ws, message);
+      }
+    }
   }
 
   private sendError(ws: WebSocket, message: string, code: string): void {

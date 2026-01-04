@@ -28,12 +28,17 @@ export class UIManager {
   private selectedDieIds: string[] = [];
   private wasMyTurn: boolean = false;
 
+  // Volume callback
+  public onVolumeChange: ((volume: number) => void) | null = null;
+
   // Session callbacks
-  public onConnect: ((host: string, port: number, playerName: string) => void) | null = null;
+  public onConnect: ((playerName: string) => void) | null = null;
   public onCreateSession: ((sessionName: string, hostName: string, settings?: Partial<GameSettings>) => void) | null = null;
   public onJoinSession: ((sessionId: string, playerName: string) => void) | null = null;
   public onLeaveSession: (() => void) | null = null;
   public onRefreshSessions: (() => void) | null = null;
+  public onUpdateSessionSettings: ((settings: { mode?: string; maxPlayers?: number }) => void) | null = null;
+  public onDeleteSession: (() => void) | null = null;
   
   // Game callbacks
   public onStartGame: (() => void) | null = null;
@@ -57,23 +62,25 @@ export class UIManager {
   private createUI(): void {
     this.container.innerHTML = `
       <div id="game-ui">
+        <!-- Volume Control (visible on all screens) -->
+        <div id="volume-control" class="volume-control">
+          <span class="volume-icon">🔊</span>
+          <input type="range" id="volume-slider" min="0" max="100" value="25" class="volume-slider">
+        </div>
+
         <!-- Connection Screen -->
         <div id="connection-screen" class="screen active">
           <div class="panel connection-panel">
             <h1>🎲 Perudo+</h1>
-            <div class="form-group">
-              <label for="server-host">Server IP:</label>
-              <input type="text" id="server-host" value="localhost" placeholder="IP Address">
-            </div>
-            <div class="form-group">
-              <label for="server-port">Port:</label>
-              <input type="number" id="server-port" value="3000" placeholder="Port">
-            </div>
+            <p class="connection-subtitle">Enter your name to join</p>
             <div class="form-group">
               <label for="player-name">Your Name:</label>
-              <input type="text" id="player-name" placeholder="Enter your name" maxlength="20">
+              <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" autofocus>
             </div>
-            <button id="connect-btn" class="btn primary">Connect</button>
+            <div class="btn-with-help">
+              <button id="connect-btn" class="btn primary">Join Game</button>
+              <span class="help-icon">?<span class="tooltip">Connect to the server and browse available game sessions</span></span>
+            </div>
             <p id="connection-error" class="error"></p>
           </div>
         </div>
@@ -85,8 +92,14 @@ export class UIManager {
               <div class="browser-header">
                 <h2>🎮 Game Sessions</h2>
                 <div class="browser-actions">
-                  <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
-                  <button id="create-session-btn" class="btn primary">+ Create Session</button>
+                  <div class="btn-with-help">
+                    <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
+                    <span class="help-icon">?<span class="tooltip">Refresh the list of available game sessions</span></span>
+                  </div>
+                  <div class="btn-with-help">
+                    <button id="create-session-btn" class="btn primary">+ Create Session</button>
+                    <span class="help-icon">?<span class="tooltip">Create a new game session that others can join. You'll be the host.</span></span>
+                  </div>
                 </div>
               </div>
               <div id="session-list" class="session-list">
@@ -139,10 +152,19 @@ export class UIManager {
             <!-- Left Column: Player Slots + Chat -->
             <div class="lobby-left-column">
               <div class="panel lobby-slots-panel">
-                <h2>Player Slots</h2>
+                <div class="lobby-header">
+                  <div class="btn-with-help">
+                    <button id="leave-session-btn" class="btn secondary">← Back</button>
+                    <span class="help-icon">?<span class="tooltip">Leave this session and return to the server browser</span></span>
+                  </div>
+                  <h2>Player Slots</h2>
+                </div>
                 <div id="slot-list" class="slot-list"></div>
                 <div class="lobby-actions">
-                  <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
+                  <div class="btn-with-help">
+                    <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
+                    <span class="help-icon" id="start-game-help" style="display: none;">?<span class="tooltip">Start the game once all players are ready. Requires at least 2 players.</span></span>
+                  </div>
                   <p class="waiting-text">Waiting for host to start...</p>
                 </div>
               </div>
@@ -159,11 +181,36 @@ export class UIManager {
               </div>
             </div>
             
-            <!-- Right Panel: Server Info & Unassigned Players -->
+            <!-- Right Panel: Server Info, Host Settings & Unassigned Players -->
             <div class="lobby-right-panel">
               <div class="panel lobby-info-panel">
                 <h3>Server Info</h3>
                 <div id="server-info" class="server-info"></div>
+              </div>
+              <!-- Host Settings Panel (only visible to host) -->
+              <div id="host-settings-panel" class="panel lobby-settings-panel" style="display: none;">
+                <h3>⚙️ Session Settings</h3>
+                <div class="settings-group">
+                  <label for="settings-game-mode">Game Mode:</label>
+                  <select id="settings-game-mode" class="settings-select">
+                    <option value="classic">Classic</option>
+                    <option value="tactical">Tactical</option>
+                    <option value="chaos">Chaos</option>
+                  </select>
+                </div>
+                <div class="settings-group">
+                  <label for="settings-max-players">Max Players:</label>
+                  <select id="settings-max-players" class="settings-select">
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                </div>
+                <div class="settings-actions">
+                  <button id="delete-session-btn" class="btn danger">🗑️ Delete Session</button>
+                </div>
               </div>
               <div class="panel lobby-unassigned-panel">
                 <h3>Unassigned Players</h3>
@@ -180,7 +227,13 @@ export class UIManager {
             <div id="round-info" class="round-info">Round 1</div>
             <div id="current-bid" class="current-bid">No bid yet</div>
             <div id="turn-indicator" class="turn-indicator"></div>
-            <button id="pause-btn" class="btn pause-btn">⏸ Pause</button>
+            <div class="top-bar-right">
+              <div id="topbar-volume" class="topbar-volume">
+                <span class="volume-icon-small">🔉</span>
+                <input type="range" id="topbar-volume-slider" min="0" max="100" value="25" class="volume-slider-small">
+              </div>
+              <button id="pause-btn" class="btn pause-btn">⏸ Pause</button>
+            </div>
           </div>
 
           <!-- Players Panel -->
@@ -215,9 +268,18 @@ export class UIManager {
                 </select>
               </div>
               <div class="action-buttons">
-                <button id="bid-btn" class="btn primary">Make Bid</button>
-                <button id="dudo-btn" class="btn danger">Call Dudo!</button>
-                <button id="jonti-btn" class="btn warning">Call Jonti!</button>
+                <div class="btn-with-help">
+                  <button id="bid-btn" class="btn primary">Make Bid</button>
+                  <span class="help-icon">?<span class="tooltip">Make a bid on how many dice of a certain face value are on the table. Must be higher than the previous bid.</span></span>
+                </div>
+                <div class="btn-with-help">
+                  <button id="dudo-btn" class="btn danger">Call Dudo!</button>
+                  <span class="help-icon">?<span class="tooltip">Challenge the previous bid! If correct, they lose a die. If wrong, you lose a die.</span></span>
+                </div>
+                <div class="btn-with-help">
+                  <button id="jonti-btn" class="btn warning">Call Jonti!</button>
+                  <span class="help-icon">?<span class="tooltip">Claim the bid is EXACTLY correct! High risk, high reward. Win: previous bidder loses a die. Lose: you lose a die.</span></span>
+                </div>
               </div>
             </div>
           </div>
@@ -336,10 +398,54 @@ export class UIManager {
   }
 
   private attachEventListeners(): void {
+    // Volume sliders (main and top-bar)
+    const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
+    const volumeIcon = document.querySelector('.volume-icon') as HTMLElement;
+    const topbarVolumeSlider = document.getElementById('topbar-volume-slider') as HTMLInputElement;
+    const topbarVolumeIcon = document.querySelector('.volume-icon-small') as HTMLElement;
+
+    const updateVolumeUI = (volume: number) => {
+      const iconText = volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
+      if (volumeIcon) volumeIcon.textContent = iconText;
+      if (topbarVolumeIcon) topbarVolumeIcon.textContent = iconText;
+      if (volumeSlider) volumeSlider.value = String(Math.round(volume * 100));
+      if (topbarVolumeSlider) topbarVolumeSlider.value = String(Math.round(volume * 100));
+    };
+
+    // Main volume slider
+    volumeSlider?.addEventListener('input', () => {
+      const volume = parseInt(volumeSlider.value, 10) / 100;
+      this.onVolumeChange?.(volume);
+      updateVolumeUI(volume);
+    });
+
+    // Top-bar volume slider
+    topbarVolumeSlider?.addEventListener('input', () => {
+      const volume = parseInt(topbarVolumeSlider.value, 10) / 100;
+      this.onVolumeChange?.(volume);
+      updateVolumeUI(volume);
+    });
+
+    // Click on volume icons to mute/unmute
+    const handleVolumeIconClick = () => {
+      const currentValue = parseInt(volumeSlider?.value || topbarVolumeSlider?.value || '25', 10);
+      if (currentValue > 0) {
+        if (volumeSlider) volumeSlider.dataset.previousVolume = String(currentValue);
+        this.onVolumeChange?.(0);
+        updateVolumeUI(0);
+      } else {
+        const prev = parseInt(volumeSlider?.dataset.previousVolume || '25', 10);
+        const volume = prev / 100;
+        this.onVolumeChange?.(volume);
+        updateVolumeUI(volume);
+      }
+    };
+
+    volumeIcon?.addEventListener('click', handleVolumeIconClick);
+    topbarVolumeIcon?.addEventListener('click', handleVolumeIconClick);
+
     // Connection
     document.getElementById('connect-btn')?.addEventListener('click', () => {
-      const host = (document.getElementById('server-host') as HTMLInputElement).value;
-      const port = parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10);
       const name = (document.getElementById('player-name') as HTMLInputElement).value.trim();
       
       if (!name) {
@@ -347,7 +453,7 @@ export class UIManager {
         return;
       }
       
-      this.onConnect?.(host, port, name);
+      this.onConnect?.(name);
     });
 
     // Start game
@@ -481,6 +587,30 @@ export class UIManager {
       this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers });
     });
 
+    // Leave Session (back to browser)
+    document.getElementById('leave-session-btn')?.addEventListener('click', () => {
+      this.onLeaveSession?.();
+    });
+
+    // Host Settings - Game Mode
+    document.getElementById('settings-game-mode')?.addEventListener('change', (e) => {
+      const mode = (e.target as HTMLSelectElement).value;
+      this.onUpdateSessionSettings?.({ mode });
+    });
+
+    // Host Settings - Max Players
+    document.getElementById('settings-max-players')?.addEventListener('change', (e) => {
+      const maxPlayers = parseInt((e.target as HTMLSelectElement).value, 10);
+      this.onUpdateSessionSettings?.({ maxPlayers });
+    });
+
+    // Host Settings - Delete Session
+    document.getElementById('delete-session-btn')?.addEventListener('click', () => {
+      if (confirm('Are you sure you want to delete this session? All players will be returned to the server browser.')) {
+        this.onDeleteSession?.();
+      }
+    });
+
     // Chat panel resize functionality
     this.setupChatResize();
   }
@@ -579,6 +709,132 @@ export class UIManager {
         pointer-events: auto;
       }
 
+      /* Volume Control - hidden on game screen since top bar has its own */
+      .volume-control {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(30, 30, 50, 0.9);
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1001;
+      }
+
+
+      /* Help Tooltips */
+      .help-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        font-size: 11px;
+        font-weight: bold;
+        color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        cursor: help;
+        margin-left: 6px;
+        position: relative;
+        user-select: none;
+        transition: all 0.2s;
+      }
+
+      .help-icon:hover {
+        color: #fff;
+        background: rgba(78, 205, 196, 0.3);
+        border-color: #4ecdc4;
+      }
+
+      .help-icon .tooltip {
+        visibility: hidden;
+        opacity: 0;
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(20, 20, 40, 0.98);
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: normal;
+        line-height: 1.4;
+        width: 220px;
+        text-align: center;
+        border: 1px solid rgba(78, 205, 196, 0.5);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        z-index: 1002;
+        transition: opacity 0.2s, visibility 0.2s;
+      }
+
+      .help-icon .tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(20, 20, 40, 0.98);
+      }
+
+      .help-icon:hover .tooltip {
+        visibility: visible;
+        opacity: 1;
+      }
+
+      .btn-with-help {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .volume-icon {
+        font-size: 1.2em;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .volume-slider {
+        width: 80px;
+        height: 6px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+        outline: none;
+        cursor: pointer;
+      }
+
+      .volume-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+
+      .volume-slider::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+      }
+
+      .volume-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+      }
+
       .screen {
         display: none;
         position: absolute;
@@ -608,8 +864,14 @@ export class UIManager {
       }
 
       .connection-panel h1 {
-        margin-bottom: 24px;
+        margin-bottom: 8px;
         font-size: 2.5em;
+      }
+
+      .connection-subtitle {
+        color: rgba(255, 255, 255, 0.7);
+        margin-bottom: 24px;
+        font-size: 1.1em;
       }
 
       .form-group {
@@ -860,6 +1122,20 @@ export class UIManager {
         min-height: 0;
       }
 
+      .lobby-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .lobby-header h2 {
+        flex: 1;
+        text-align: center;
+        margin: 0;
+        margin-right: 80px; /* Balance for back button width */
+      }
+
       .lobby-slots-panel h2 {
         margin-bottom: 16px;
         text-align: center;
@@ -889,6 +1165,61 @@ export class UIManager {
 
       .lobby-unassigned-panel h3 {
         margin-bottom: 8px;
+      }
+
+      .lobby-settings-panel {
+        padding: 12px;
+      }
+
+      .lobby-settings-panel h3 {
+        margin-bottom: 12px;
+      }
+
+      .settings-group {
+        margin-bottom: 12px;
+      }
+
+      .settings-group label {
+        display: block;
+        margin-bottom: 4px;
+        color: #aaa;
+        font-size: 0.9em;
+      }
+
+      .settings-select {
+        width: 100%;
+        padding: 8px 12px;
+        background: #2a2a4a;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 1em;
+        cursor: pointer;
+      }
+
+      .settings-select option {
+        background: #2a2a4a;
+        color: #fff;
+        padding: 8px;
+      }
+
+      .settings-select:hover {
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+
+      .settings-select:focus {
+        outline: none;
+        border-color: #4ecdc4;
+      }
+
+      .settings-actions {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .settings-actions .btn {
+        width: 100%;
       }
 
       .server-info {
@@ -1064,6 +1395,7 @@ export class UIManager {
         justify-content: space-between;
         padding: 0 24px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1001;
       }
 
       .round-info {
@@ -1079,6 +1411,56 @@ export class UIManager {
       .turn-indicator {
         font-size: 1.1em;
         color: #ffe66d;
+      }
+
+      .top-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .topbar-volume {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        position: relative;
+        z-index: 1001;
+      }
+
+      .volume-icon-small {
+        font-size: 1em;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .volume-slider-small {
+        width: 60px;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        outline: none;
+        cursor: pointer;
+      }
+
+      .volume-slider-small::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 12px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+
+      .volume-slider-small::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
       }
 
       .pause-btn {
@@ -2106,10 +2488,31 @@ export class UIManager {
   public setIsHost(isHost: boolean): void {
     this.isHost = isHost;
     const startBtn = document.getElementById('start-game-btn');
+    const startBtnHelp = document.getElementById('start-game-help');
     const waitingText = document.querySelector('.waiting-text') as HTMLElement;
+    const hostSettingsPanel = document.getElementById('host-settings-panel');
+    
     if (startBtn && waitingText) {
       startBtn.style.display = isHost ? 'block' : 'none';
+      if (startBtnHelp) startBtnHelp.style.display = isHost ? 'inline-flex' : 'none';
       waitingText.style.display = isHost ? 'none' : 'block';
+    }
+    
+    // Show/hide host settings panel
+    if (hostSettingsPanel) {
+      hostSettingsPanel.style.display = isHost ? 'block' : 'none';
+    }
+  }
+
+  public updateSessionSettings(settings: { mode: string; maxPlayers: number }): void {
+    const gameModeSelect = document.getElementById('settings-game-mode') as HTMLSelectElement;
+    const maxPlayersSelect = document.getElementById('settings-max-players') as HTMLSelectElement;
+    
+    if (gameModeSelect && settings.mode) {
+      gameModeSelect.value = settings.mode;
+    }
+    if (maxPlayersSelect && settings.maxPlayers) {
+      maxPlayersSelect.value = String(settings.maxPlayers);
     }
   }
 
@@ -2118,6 +2521,12 @@ export class UIManager {
       screen.classList.remove('active');
     });
     document.getElementById(screenId)?.classList.add('active');
+    
+    // Hide main volume control on game screen (it has its own in top bar)
+    const volumeControl = document.getElementById('volume-control');
+    if (volumeControl) {
+      volumeControl.style.display = screenId === 'game-screen' ? 'none' : 'flex';
+    }
   }
 
   public showConnectionError(message: string): void {
