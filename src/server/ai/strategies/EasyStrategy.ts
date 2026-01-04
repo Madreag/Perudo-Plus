@@ -29,13 +29,20 @@ export class EasyStrategy implements AIStrategy {
    * Make a decision based on simple stochastic rules
    */
   public async makeDecision(context: AIGameContext): Promise<AIDecision> {
-    const { currentBid, ownDice, ownCards, totalDiceCount } = context;
+    const { currentBid, ownDice, ownCards, totalDiceCount, gameMode } = context;
 
-    // 20% chance to play a random card if we have any
-    if (ownCards.length > 0 && Math.random() < 0.2) {
-      const cardDecision = this.tryPlayRandomCard(context);
-      if (cardDecision) {
-        return cardDecision;
+    // Skip card logic in Classic mode (no cards)
+    if (gameMode !== 'classic' && ownCards.length > 0) {
+      // Mode-specific card play chance:
+      // - Tactical: 20% (standard)
+      // - Chaos: 35% (more aggressive card usage)
+      const cardPlayChance = gameMode === 'chaos' ? 0.35 : 0.2;
+      
+      if (Math.random() < cardPlayChance) {
+        const cardDecision = this.tryPlayRandomCard(context);
+        if (cardDecision) {
+          return cardDecision;
+        }
       }
     }
 
@@ -291,7 +298,120 @@ export class EasyStrategy implements AIStrategy {
           reasoning: 'Random false tell'
         };
       
-      // Skip complex cards for Easy AI
+      case 'gauge':
+        // Select 2 random dice from other players
+        if (otherPlayers.length > 0) {
+          const allOpponentDice: string[] = [];
+          for (const p of otherPlayers) {
+            for (let i = 0; i < p.diceCount; i++) {
+              allOpponentDice.push(`${p.id}-${i}`);
+            }
+          }
+          if (allOpponentDice.length >= 2) {
+            const shuffled = allOpponentDice.sort(() => Math.random() - 0.5);
+            return {
+              action: 'play_card',
+              cardPlay: {
+                cardId: card.id,
+                cardType: card.type,
+                additionalData: { dieIds: [shuffled[0], shuffled[1]] }
+              },
+              confidence: 0.3,
+              reasoning: 'Random gauge'
+            };
+          }
+        }
+        break;
+
+      case 'inflation':
+        // Only play if there's a current bid
+        if (context.currentBid) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: card.id,
+              cardType: card.type
+            },
+            confidence: 0.3,
+            reasoning: 'Random inflation'
+          };
+        }
+        break;
+
+      case 'wild_shift':
+        // Change to a random face value
+        if (context.currentBid) {
+          const newFace = Math.floor(Math.random() * 6) + 1;
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: card.id,
+              cardType: card.type,
+              additionalData: { faceValue: newFace }
+            },
+            confidence: 0.3,
+            reasoning: 'Random wild shift'
+          };
+        }
+        break;
+
+      case 'phantom_bid':
+        // Activate phantom bid effect
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: card.id,
+            cardType: card.type
+          },
+          confidence: 0.3,
+          reasoning: 'Random phantom bid activation'
+        };
+
+      case 'insurance':
+        // Only use before calling dudo (30% chance to activate)
+        if (context.currentBid && Math.random() < 0.3) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: card.id,
+              cardType: card.type
+            },
+            confidence: 0.3,
+            reasoning: 'Random insurance activation'
+          };
+        }
+        break;
+
+      case 'double_dudo':
+        // Only use before calling dudo (20% chance - risky)
+        if (context.currentBid && Math.random() < 0.2) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: card.id,
+              cardType: card.type
+            },
+            confidence: 0.3,
+            reasoning: 'Random double dudo activation'
+          };
+        }
+        break;
+
+      case 'late_dudo':
+        // Use late dudo if there are previous bids (25% chance)
+        if (context.previousBids && context.previousBids.length > 0 && Math.random() < 0.25) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: card.id,
+              cardType: card.type
+            },
+            confidence: 0.3,
+            reasoning: 'Random late dudo activation'
+          };
+        }
+        break;
+
       default:
         return null;
     }

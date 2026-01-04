@@ -64,18 +64,40 @@ export class ChuckNorrisStrategy implements AIStrategy {
    */
   private initializeWorker(): void {
     try {
-      // Handle both development (.ts) and production (.js) environments
+      // Determine if we're in production (compiled JS) or development (TypeScript)
       const isProduction = __dirname.includes('dist');
-      const workerFile = isProduction ? 'mcts.worker.js' : 'mcts.worker.ts';
-      const workerPath = path.join(__dirname, '..', 'workers', workerFile);
       
-      // For TypeScript files, we need to use ts-node or compile first
-      // In production, the compiled .js file will be used
-      this.worker = new Worker(workerPath);
+      let workerPath: string;
+      let workerOptions: any = {};
+
+      if (isProduction) {
+        // Production: use compiled JavaScript worker
+        workerPath = path.join(__dirname, '..', 'workers', 'mcts.worker.js');
+      } else {
+        // Development: use ts-node to execute TypeScript worker
+        // This requires ts-node to be installed
+        workerPath = path.join(__dirname, '..', 'workers', 'mcts.worker.ts');
+        
+        // Use ts-node/register to enable TypeScript execution in worker
+        workerOptions = {
+          execArgv: ['-r', 'ts-node/register']
+        };
+      }
+
+      // Check if worker file exists
+      const fs = require('fs');
+      if (!fs.existsSync(workerPath)) {
+        console.warn(`[ChuckNorris] Worker file not found at ${workerPath}, using synchronous fallback`);
+        this.workerReady = false;
+        return;
+      }
+
+      this.worker = new Worker(workerPath, workerOptions);
       
       this.worker.on('error', (error) => {
         console.error('[ChuckNorris] Worker error:', error);
         this.workerReady = false;
+        // Don't crash - we have synchronous fallback
       });
 
       this.worker.on('exit', (code) => {
@@ -86,9 +108,10 @@ export class ChuckNorrisStrategy implements AIStrategy {
       });
 
       this.workerReady = true;
-      console.log('[ChuckNorris] MCTS Worker initialized');
+      console.log(`[ChuckNorris] MCTS Worker initialized (${isProduction ? 'production' : 'development'} mode)`);
     } catch (error) {
-      console.error('[ChuckNorris] Failed to initialize worker:', error);
+      // Worker initialization failed - fall back to synchronous MCTS
+      console.warn('[ChuckNorris] Failed to initialize worker, using synchronous fallback:', error);
       this.workerReady = false;
     }
   }

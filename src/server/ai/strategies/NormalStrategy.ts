@@ -31,10 +31,18 @@ export class NormalStrategy implements AIStrategy {
    * Make a decision based on d6 heuristics
    */
   public async makeDecision(context: AIGameContext): Promise<AIDecision> {
-    const { currentBid, ownDice, ownCards, totalDiceCount } = context;
+    const { currentBid, ownDice, ownCards, totalDiceCount, roundNumber, gameMode } = context;
 
     // Calculate unknown dice count
     const unknownDiceCount = totalDiceCount - ownDice.length;
+
+    // Consider playing proactive cards first (skip in Classic mode)
+    if (gameMode !== 'classic') {
+      const cardDecision = this.considerProactiveCards(context, unknownDiceCount);
+      if (cardDecision) {
+        return cardDecision;
+      }
+    }
 
     // If no current bid, make an opening bid
     if (!currentBid) {
@@ -57,6 +65,113 @@ export class NormalStrategy implements AIStrategy {
 
     // Marginal situation - make a conservative bid or call
     return this.makeMarginalDecision(context, currentBid, evaluation, ownCards);
+  }
+
+  /**
+   * Consider playing proactive cards (information gathering, dice manipulation)
+   */
+  private considerProactiveCards(context: AIGameContext, unknownDiceCount: number): AIDecision | null {
+    const { ownCards, ownDice, players, ownPlayerId, roundNumber, currentBid } = context;
+    
+    if (ownCards.length === 0) return null;
+
+    const otherPlayers = players.filter(p => p.id !== ownPlayerId && !p.isEliminated);
+    if (otherPlayers.length === 0) return null;
+
+    // Early rounds: Use Peek to gather information (40% chance)
+    if (roundNumber <= 3 && Math.random() < 0.4) {
+      const peekCard = ownCards.find(c => c.type === 'peek');
+      if (peekCard) {
+        // Target player with most dice
+        const target = otherPlayers.reduce((a, b) => a.diceCount > b.diceCount ? a : b);
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: peekCard.id,
+            cardType: 'peek',
+            targetPlayerId: target.id
+          },
+          confidence: 0.6,
+          reasoning: 'Early peek for information'
+        };
+      }
+    }
+
+    // Reroll bad dice (dice showing 5 or 6 that don't match any reasonable bid)
+    const rerollCard = ownCards.find(c => c.type === 'reroll_one');
+    if (rerollCard) {
+      const badDie = ownDice.find(d => d.faceValue >= 5);
+      if (badDie && Math.random() < 0.35) {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: rerollCard.id,
+            cardType: 'reroll_one',
+            targetDieId: badDie.id
+          },
+          confidence: 0.5,
+          reasoning: 'Reroll high-value die'
+        };
+      }
+    }
+
+    // Polish lowest type die (30% chance)
+    const polishCard = ownCards.find(c => c.type === 'polish');
+    if (polishCard && Math.random() < 0.3) {
+      const lowestDie = ownDice.find(d => d.type === 'd3') || 
+                        ownDice.find(d => d.type === 'd4') ||
+                        ownDice.find(d => d.type === 'd6');
+      if (lowestDie && lowestDie.type !== 'd10') {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: polishCard.id,
+            cardType: 'polish',
+            targetDieId: lowestDie.id
+          },
+          confidence: 0.5,
+          reasoning: 'Upgrade low die'
+        };
+      }
+    }
+
+    // Crack leading opponent (25% chance)
+    const crackCard = ownCards.find(c => c.type === 'crack');
+    if (crackCard && Math.random() < 0.25) {
+      const target = otherPlayers.reduce((a, b) => a.diceCount > b.diceCount ? a : b);
+      if (target.diceCount >= 3) {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: crackCard.id,
+            cardType: 'crack',
+            targetPlayerId: target.id
+          },
+          confidence: 0.5,
+          reasoning: 'Crack leading opponent'
+        };
+      }
+    }
+
+    // Use late dudo if previous bid looks suspicious (20% chance)
+    const lateDudoCard = ownCards.find(c => c.type === 'late_dudo');
+    if (lateDudoCard && context.previousBids && context.previousBids.length > 0 && Math.random() < 0.2) {
+      const lastBid = context.previousBids[context.previousBids.length - 1];
+      const expectedForLastBid = unknownDiceCount * this.ASSUMED_PROBABILITY;
+      if (lastBid.quantity > expectedForLastBid * 1.5) {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: lateDudoCard.id,
+            cardType: 'late_dudo'
+          },
+          confidence: 0.5,
+          reasoning: 'Late dudo on suspicious previous bid'
+        };
+      }
+    }
+
+    return null;
   }
 
   /**

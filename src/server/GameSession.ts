@@ -27,6 +27,7 @@ import {
   rollDiceForRound,
   makeBid,
   callDudo,
+  callLateDudo,
   callJonti,
   applyDudoResult,
   applyJontiResult,
@@ -220,6 +221,9 @@ export class GameSession {
         break;
       case 'call_jonti':
         this.handleCallJonti(clientId);
+        break;
+      case 'call_late_dudo':
+        this.handleCallLateDudo(clientId, message.payload?.targetBidIndex);
         break;
       case 'play_card':
         this.handlePlayCard(clientId, message.payload as PlayCardPayload);
@@ -494,6 +498,9 @@ export class GameSession {
 
       console.log(`[Session ${this.name}] Game resumed by ${client.playerName}`);
       this.onSessionUpdate();
+      
+      // Check if AI should take turn after game resumes
+      this.checkAndHandleAITurn();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'RESUME_ERROR');
     }
@@ -660,6 +667,86 @@ export class GameSession {
       this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'JONTI_ERROR');
+    }
+  }
+
+  /**
+   * Handle Late Dudo call (challenge a previous bid)
+   */
+  private handleCallLateDudo(clientId: string, targetBidIndex?: number): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    try {
+      const { newState, result } = callLateDudo(this.gameState, client.playerId, targetBidIndex);
+      this.gameState = newState;
+
+      // Broadcast late dudo called
+      this.broadcast({
+        type: 'late_dudo_called',
+        payload: {
+          callerId: client.playerId,
+          callerName: client.playerName,
+          challengedBid: result.bid
+        }
+      });
+
+      // Check for insurance and double dudo effects
+      const player = this.gameState.players.find(p => p.id === client.playerId);
+      const insuranceUsed = player?.activeEffects?.insurance || false;
+      const doubleDudo = player?.activeEffects?.doubleDudo || false;
+
+      // Apply dudo result
+      const { newState: finalState, cardDrawn } = applyDudoResult(this.gameState, result, insuranceUsed, doubleDudo);
+      this.gameState = finalState;
+
+      // Clear effects after use
+      if (insuranceUsed) {
+        this.gameState = setActiveEffect(this.gameState, client.playerId, 'insurance', false);
+      }
+      if (doubleDudo) {
+        this.gameState = setActiveEffect(this.gameState, client.playerId, 'doubleDudo', false);
+      }
+
+      const loser = this.gameState.players.find(p => p.id === result.loserId);
+      const cardDrawInfo = cardDrawn ? {
+        playerId: result.loserId,
+        playerName: loser?.name || 'Unknown'
+      } : null;
+
+      // Broadcast result (reuse dudo_result message type)
+      this.broadcast({
+        type: 'dudo_result',
+        payload: {
+          result,
+          gameState: toPublicGameState(this.gameState),
+          cardDrawInfo,
+          isLateDudo: true
+        }
+      });
+
+      // Update AI models
+      for (const [id, ai] of this.aiPlayers) {
+        ai.updateModels(this.gameState, id, result);
+      }
+
+      // Check for game over
+      if (this.gameState.phase === 'game_over') {
+        const winner = this.gameState.players.find(p => p.id === this.gameState.winnerId);
+        this.broadcast({
+          type: 'game_over',
+          payload: {
+            winnerId: this.gameState.winnerId,
+            winnerName: winner?.name,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+      }
+
+      console.log(`[Session ${this.name}] Late Dudo called by ${client.playerName} on bid ${result.bid.quantity}x${result.bid.faceValue}. Result: ${result.success ? 'Success' : 'Failed'}`);
+      this.onSessionUpdate();
+    } catch (error: any) {
+      this.sendError(client.ws, error.message, 'LATE_DUDO_ERROR');
     }
   }
 
@@ -968,6 +1055,9 @@ export class GameSession {
 
       console.log(`[Session ${this.name}] Round ${this.gameState.roundNumber} started`);
       this.onSessionUpdate();
+      
+      // Check if AI should take turn after round starts
+      this.checkAndHandleAITurn();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'ROUND_ERROR');
     }
@@ -1355,6 +1445,9 @@ export class GameSession {
         case 'bid':
           if (decision.bid) {
             this.executeAIBid(playerId, aiPlayer.name, decision.bid.quantity, decision.bid.faceValue);
+          } else {
+            console.error(`[Session ${this.name}] AI ${aiPlayer.name} decided to bid but no bid data provided`);
+            this.executeAIFallback(playerId, aiPlayer.name);
           }
           break;
         
@@ -1366,12 +1459,24 @@ export class GameSession {
           this.executeAIJonti(playerId, aiPlayer.name);
           break;
         
+        case 'late_dudo':
+          this.executeAILateDudo(playerId, aiPlayer.name);
+          break;
+        
         case 'play_card':
           if (decision.cardPlay) {
             this.executeAICardPlay(playerId, aiPlayer.name, decision.cardPlay);
+          } else {
+            console.error(`[Session ${this.name}] AI ${aiPlayer.name} decided to play card but no card data provided`);
+            this.executeAIFallback(playerId, aiPlayer.name);
           }
           break;
+
+        default:
+          console.error(`[Session ${this.name}] AI ${aiPlayer.name} made unknown decision: ${decision.action}`);
+          this.executeAIFallback(playerId, aiPlayer.name);
       }
+
     } catch (error) {
       console.error(`[Session ${this.name}] AI ${aiPlayer.name} error:`, error);
       // Fallback: make a simple bid or call dudo
@@ -1457,6 +1562,19 @@ export class GameSession {
       }
 
       console.log(`[Session ${this.name}] AI ${playerName} called Dudo. Result: ${result.success ? 'Success' : 'Failed'}`);
+      
+      // AI chat message
+      const aiPlayer = this.aiPlayers.get(playerId);
+      if (aiPlayer) {
+        const chatMsg = aiPlayer.getChatMessage(result.success ? 'dudo_success' : 'dudo_fail');
+        if (chatMsg) {
+          this.broadcast({
+            type: 'chat',
+            payload: { playerId, playerName, message: chatMsg }
+          });
+        }
+      }
+      
       this.onSessionUpdate();
     } catch (error: any) {
       console.error(`[Session ${this.name}] AI dudo error:`, error.message);
@@ -1503,6 +1621,19 @@ export class GameSession {
       }
 
       console.log(`[Session ${this.name}] AI ${playerName} called Jonti. Result: ${result.success ? 'Success' : 'Failed'}`);
+      
+      // AI chat message
+      const aiPlayer = this.aiPlayers.get(playerId);
+      if (aiPlayer) {
+        const chatMsg = aiPlayer.getChatMessage(result.success ? 'jonti_success' : 'jonti_fail');
+        if (chatMsg) {
+          this.broadcast({
+            type: 'chat',
+            payload: { playerId, playerName, message: chatMsg }
+          });
+        }
+      }
+      
       this.onSessionUpdate();
     } catch (error: any) {
       console.error(`[Session ${this.name}] AI jonti error:`, error.message);
@@ -1510,14 +1641,366 @@ export class GameSession {
   }
 
   /**
+   * Execute AI late dudo call (challenge a previous bid)
+   */
+  private executeAILateDudo(playerId: string, playerName: string, targetBidIndex?: number): void {
+    try {
+      const { newState, result } = callLateDudo(this.gameState, playerId, targetBidIndex);
+      this.gameState = newState;
+
+      this.broadcast({
+        type: 'late_dudo_called',
+        payload: {
+          callerId: playerId,
+          callerName: playerName,
+          challengedBid: result.bid
+        }
+      });
+
+      // Check for insurance and double dudo effects
+      const player = this.gameState.players.find(p => p.id === playerId);
+      const insuranceUsed = player?.activeEffects?.insurance || false;
+      const doubleDudo = player?.activeEffects?.doubleDudo || false;
+
+      const { newState: finalState, cardDrawn } = applyDudoResult(this.gameState, result, insuranceUsed, doubleDudo);
+      this.gameState = finalState;
+
+      // Clear effects after use
+      if (insuranceUsed) {
+        this.gameState = setActiveEffect(this.gameState, playerId, 'insurance', false);
+      }
+      if (doubleDudo) {
+        this.gameState = setActiveEffect(this.gameState, playerId, 'doubleDudo', false);
+      }
+
+      const loser = this.gameState.players.find(p => p.id === result.loserId);
+      const cardDrawInfo = cardDrawn ? {
+        playerId: result.loserId,
+        playerName: loser?.name || 'Unknown'
+      } : null;
+
+      this.broadcast({
+        type: 'dudo_result',
+        payload: {
+          result,
+          gameState: toPublicGameState(this.gameState),
+          cardDrawInfo,
+          isLateDudo: true
+        }
+      });
+
+      // Update AI models
+      for (const [id, ai] of this.aiPlayers) {
+        ai.updateModels(this.gameState, id, result);
+      }
+
+      if (this.gameState.phase === 'game_over') {
+        const winner = this.gameState.players.find(p => p.id === this.gameState.winnerId);
+        this.broadcast({
+          type: 'game_over',
+          payload: {
+            winnerId: this.gameState.winnerId,
+            winnerName: winner?.name,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+      }
+
+      console.log(`[Session ${this.name}] AI ${playerName} called Late Dudo on bid ${result.bid.quantity}x${result.bid.faceValue}. Result: ${result.success ? 'Success' : 'Failed'}`);
+      this.onSessionUpdate();
+    } catch (error: any) {
+      console.error(`[Session ${this.name}] AI late dudo error:`, error.message);
+    }
+  }
+
+  /**
    * Execute AI card play
    */
   private executeAICardPlay(playerId: string, playerName: string, cardPlay: any): void {
-    // For now, just log the card play - full implementation would handle each card type
-    console.log(`[Session ${this.name}] AI ${playerName} would play card: ${cardPlay.cardType}`);
-    
-    // Fallback to making a bid instead
-    this.executeAIFallback(playerId, playerName);
+    try {
+      const player = this.gameState.players.find(p => p.id === playerId);
+      if (!player) {
+        console.error(`[Session ${this.name}] AI ${playerName} player not found`);
+        return this.executeAIFallback(playerId, playerName);
+      }
+
+      const card = player.cards.find(c => c.id === cardPlay.cardId);
+      if (!card) {
+        console.error(`[Session ${this.name}] AI ${playerName} tried to play card it doesn't have: ${cardPlay.cardId}`);
+        return this.executeAIFallback(playerId, playerName);
+      }
+
+      console.log(`[Session ${this.name}] AI ${playerName} playing card: ${card.name} (${card.type})`);
+
+      // Track if this card requires a follow-up action (AI must still act after playing)
+      let requiresFollowUp = false;
+
+      // Apply card effect based on type
+      switch (card.type) {
+        case 'reroll_one':
+          if (!cardPlay.targetDieId) {
+            // Select worst die to reroll (lowest face value that isn't a 1 if not bidding on 1s)
+            const worstDie = this.selectWorstDieToReroll(player.dice);
+            if (!worstDie) {
+              console.error(`[Session ${this.name}] AI ${playerName} has no dice to reroll`);
+              return this.executeAIFallback(playerId, playerName);
+            }
+            cardPlay.targetDieId = worstDie.id;
+          }
+          this.gameState = applyRerollOne(this.gameState, playerId, cardPlay.targetDieId);
+          break;
+
+        case 'polish':
+          if (!cardPlay.targetDieId) {
+            // Select best die to upgrade (lowest type that isn't d10)
+            const dieToUpgrade = this.selectBestDieToUpgrade(player.dice);
+            if (!dieToUpgrade) {
+              console.error(`[Session ${this.name}] AI ${playerName} has no dice to upgrade`);
+              return this.executeAIFallback(playerId, playerName);
+            }
+            cardPlay.targetDieId = dieToUpgrade.id;
+          }
+          this.gameState = applyPolish(this.gameState, playerId, cardPlay.targetDieId);
+          break;
+
+        case 'crack':
+          if (!cardPlay.targetPlayerId) {
+            console.error(`[Session ${this.name}] AI ${playerName} crack card missing target player`);
+            return this.executeAIFallback(playerId, playerName);
+          }
+          {
+            const targetPlayer = this.gameState.players.find(p => p.id === cardPlay.targetPlayerId);
+            if (!targetPlayer || targetPlayer.dice.length === 0) {
+              console.error(`[Session ${this.name}] AI ${playerName} crack target has no dice`);
+              return this.executeAIFallback(playerId, playerName);
+            }
+            // Select best die to crack (highest type)
+            let targetDieId = cardPlay.targetDieId;
+            if (!targetDieId) {
+              const dieToCrack = this.selectBestDieToCrack(targetPlayer.dice);
+              targetDieId = dieToCrack?.id || targetPlayer.dice[0].id;
+            }
+            this.gameState = applyCrack(this.gameState, cardPlay.targetPlayerId, targetDieId);
+          }
+          break;
+
+        case 'inflation':
+          if (!this.gameState.currentBid) {
+            console.error(`[Session ${this.name}] AI ${playerName} tried to use inflation with no current bid`);
+            return this.executeAIFallback(playerId, playerName);
+          }
+          this.gameState = applyInflation(this.gameState);
+          break;
+
+        case 'wild_shift':
+          if (!this.gameState.currentBid) {
+            console.error(`[Session ${this.name}] AI ${playerName} tried to use wild_shift with no current bid`);
+            return this.executeAIFallback(playerId, playerName);
+          }
+          {
+            const newFaceValue = cardPlay.additionalData?.faceValue || this.selectBestWildShiftFace(player.dice);
+            this.gameState = applyWildShift(this.gameState, newFaceValue);
+          }
+          break;
+
+        case 'peek':
+          if (!cardPlay.targetPlayerId) {
+            console.error(`[Session ${this.name}] AI ${playerName} peek card missing target player`);
+            return this.executeAIFallback(playerId, playerName);
+          }
+          {
+            const targetPlayer = this.gameState.players.find(p => p.id === cardPlay.targetPlayerId);
+            if (!targetPlayer || targetPlayer.dice.length === 0) {
+              console.error(`[Session ${this.name}] AI ${playerName} peek target has no dice`);
+              return this.executeAIFallback(playerId, playerName);
+            }
+            // Select a random die to peek at if not specified
+            let targetDieId = cardPlay.targetDieId;
+            if (!targetDieId) {
+              const randomIndex = Math.floor(Math.random() * targetPlayer.dice.length);
+              targetDieId = targetPlayer.dice[randomIndex].id;
+            }
+            const targetDie = targetPlayer.dice.find(d => d.id === targetDieId);
+            if (targetDie) {
+              // Store the peeked information in the AI player's memory
+              const aiPlayer = this.aiPlayers.get(playerId);
+              if (aiPlayer) {
+                aiPlayer.addKnownDice({
+                  playerId: cardPlay.targetPlayerId,
+                  dieId: targetDieId,
+                  dieType: targetDie.type,
+                  faceValue: targetDie.faceValue,
+                  roundNumber: this.gameState.roundNumber
+                });
+              }
+              console.log(`[Session ${this.name}] AI ${playerName} peeked at ${targetPlayer.name}'s die: ${targetDie.type} showing ${targetDie.faceValue}`);
+            }
+          }
+          requiresFollowUp = true; // Peek doesn't end turn
+          break;
+
+        case 'gauge':
+          {
+            // Gauge shows types of 2 dice (no face values)
+            // AI just gains information - the effect is informational
+            const dieIds = cardPlay.additionalData?.dieIds;
+            if (dieIds && dieIds.length === 2) {
+              console.log(`[Session ${this.name}] AI ${playerName} used gauge on 2 dice`);
+            } else {
+              // Select 2 random dice from opponents
+              const opponentDice = this.gameState.players
+                .filter(p => p.id !== playerId && !p.isEliminated && p.dice.length > 0)
+                .flatMap(p => p.dice.map(d => ({ playerId: p.id, die: d })));
+              if (opponentDice.length >= 2) {
+                const shuffled = opponentDice.sort(() => Math.random() - 0.5);
+                console.log(`[Session ${this.name}] AI ${playerName} gauged: ${shuffled[0].die.type}, ${shuffled[1].die.type}`);
+              }
+            }
+          }
+          requiresFollowUp = true; // Gauge doesn't end turn
+          break;
+
+        case 'blind_swap':
+          if (!cardPlay.targetPlayerId || !cardPlay.targetDieId) {
+            // Select worst own die and random opponent
+            const worstDie = this.selectWorstDieToReroll(player.dice);
+            const opponents = this.gameState.players.filter(p => p.id !== playerId && !p.isEliminated && p.dice.length > 0);
+            if (!worstDie || opponents.length === 0) {
+              console.error(`[Session ${this.name}] AI ${playerName} cannot blind swap`);
+              return this.executeAIFallback(playerId, playerName);
+            }
+            cardPlay.targetDieId = cardPlay.targetDieId || worstDie.id;
+            cardPlay.targetPlayerId = cardPlay.targetPlayerId || opponents[Math.floor(Math.random() * opponents.length)].id;
+          }
+          this.gameState = this.applyBlindSwap(playerId, cardPlay.targetDieId, cardPlay.targetPlayerId);
+          break;
+
+        case 'insurance':
+          this.gameState = setActiveEffect(this.gameState, playerId, 'insurance', true);
+          console.log(`[Session ${this.name}] AI ${playerName} activated insurance`);
+          requiresFollowUp = true; // Insurance is played before dudo, AI needs to call dudo next
+          break;
+
+        case 'double_dudo':
+          this.gameState = setActiveEffect(this.gameState, playerId, 'doubleDudo', true);
+          console.log(`[Session ${this.name}] AI ${playerName} activated double dudo`);
+          requiresFollowUp = true; // Double dudo is played before dudo, AI needs to call dudo next
+          break;
+
+        case 'late_dudo':
+          this.gameState = setActiveEffect(this.gameState, playerId, 'lateDudo', true);
+          console.log(`[Session ${this.name}] AI ${playerName} activated late dudo`);
+          requiresFollowUp = true; // AI needs to call late dudo next
+          break;
+
+        case 'phantom_bid':
+          this.gameState = setActiveEffect(this.gameState, playerId, 'phantomBid', true);
+          console.log(`[Session ${this.name}] AI ${playerName} activated phantom bid`);
+          requiresFollowUp = true; // AI still needs to make a bid
+          break;
+
+        case 'false_tell':
+          // False tell is just a bluff announcement - no game effect
+          console.log(`[Session ${this.name}] AI ${playerName} played false tell (bluff)`);
+          requiresFollowUp = true; // AI still needs to make a bid after the bluff
+          break;
+
+        default:
+          console.log(`[Session ${this.name}] AI ${playerName} card type ${card.type} not implemented`);
+          return this.executeAIFallback(playerId, playerName);
+      }
+
+      // Remove card from hand
+      this.gameState = removeCardFromHand(this.gameState, playerId, cardPlay.cardId);
+
+      // Broadcast card played to all clients
+      this.broadcast({
+        type: 'card_played',
+        payload: {
+          playerId,
+          cardType: card.type,
+          cardName: card.name,
+          gameState: toPublicGameState(this.gameState)
+        }
+      });
+
+      this.onSessionUpdate();
+
+      // If the card requires a follow-up action, trigger AI to continue
+      if (requiresFollowUp) {
+        // Small delay before follow-up action
+        setTimeout(() => {
+          this.checkAndHandleAITurn();
+        }, 500);
+      } else {
+        // Card effect complete, check for next turn
+        this.checkAndHandleAITurn();
+      }
+
+    } catch (error: any) {
+      console.error(`[Session ${this.name}] AI card play error:`, error.message);
+      this.executeAIFallback(playerId, playerName);
+    }
+  }
+
+  /**
+   * Select the worst die to reroll (highest face value or 1s when not useful)
+   */
+  private selectWorstDieToReroll(dice: import('../shared/types').Die[]): import('../shared/types').Die | null {
+    if (dice.length === 0) return null;
+    // Prefer to reroll dice showing high values (less likely to match low bids)
+    // or 1s if we're likely bidding on non-1s
+    return dice.reduce((worst, die) => {
+      // Prioritize rerolling 6s, 5s (less useful as wilds don't help them)
+      if (die.faceValue > worst.faceValue) return die;
+      return worst;
+    }, dice[0]);
+  }
+
+  /**
+   * Select the best die to upgrade (lowest die type that isn't already d10)
+   */
+  private selectBestDieToUpgrade(dice: import('../shared/types').Die[]): import('../shared/types').Die | null {
+    const upgradeOrder: import('../shared/types').DieType[] = ['d3', 'd4', 'd6', 'd8'];
+    for (const type of upgradeOrder) {
+      const die = dice.find(d => d.type === type);
+      if (die) return die;
+    }
+    return null; // All dice are d10 or no dice
+  }
+
+  /**
+   * Select the best opponent die to crack (highest die type)
+   */
+  private selectBestDieToCrack(dice: import('../shared/types').Die[]): import('../shared/types').Die | null {
+    const crackOrder: import('../shared/types').DieType[] = ['d10', 'd8', 'd6', 'd4'];
+    for (const type of crackOrder) {
+      const die = dice.find(d => d.type === type);
+      if (die) return die;
+    }
+    return dice[0] || null; // Crack d3 as last resort
+  }
+
+  /**
+   * Select the best face value for wild shift based on own dice
+   */
+  private selectBestWildShiftFace(dice: import('../shared/types').Die[]): number {
+    // Count faces in own hand (including 1s as wilds)
+    const counts = [0, 0, 0, 0, 0, 0, 0]; // index 0 unused, 1-6 for faces
+    for (const die of dice) {
+      counts[die.faceValue]++;
+    }
+    // Find face with most dice (excluding 1s, add wilds)
+    let bestFace = 2;
+    let bestCount = 0;
+    for (let face = 2; face <= 6; face++) {
+      const count = counts[face] + counts[1]; // Include wilds
+      if (count > bestCount) {
+        bestCount = count;
+        bestFace = face;
+      }
+    }
+    return bestFace;
   }
 
   /**

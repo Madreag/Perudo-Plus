@@ -17,6 +17,7 @@ import { EasyStrategy } from './strategies/EasyStrategy';
 import { NormalStrategy } from './strategies/NormalStrategy';
 import { HardStrategy } from './strategies/HardStrategy';
 import { ChuckNorrisStrategy } from './strategies/ChuckNorrisStrategy';
+import { AIChatter, ChatEventType } from './AIChatter';
 
 /**
  * AI Player class that wraps a strategy and provides player-like interface
@@ -29,12 +30,21 @@ export class AIPlayer {
   
   private strategy: AIStrategy;
   private knownDice: KnownDiceInfo[] = [];
+  private chatter: AIChatter;
 
   constructor(name: string, difficulty: AIDifficulty) {
     this.id = uuidv4();
     this.name = name;
     this.difficulty = difficulty;
     this.strategy = AIFactory.createStrategy(difficulty);
+    this.chatter = new AIChatter(difficulty);
+  }
+
+  /**
+   * Get a chat message for an event (or null if AI doesn't chat)
+   */
+  public getChatMessage(eventType: ChatEventType): string | null {
+    return this.chatter.getChatMessage(eventType);
   }
 
   /**
@@ -90,6 +100,7 @@ export class AIPlayer {
       currentBid: gameState.currentBid,
       previousBids: gameState.previousBids,
       roundNumber: gameState.roundNumber,
+      gameMode: gameState.settings.mode,
       players,
       currentTurnPlayerId: currentTurnPlayer?.id || playerId,
       totalDiceCount,

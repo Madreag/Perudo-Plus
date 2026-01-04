@@ -45,12 +45,14 @@ export class HardStrategy implements AIStrategy {
    * Make a decision based on exact probability calculations
    */
   public async makeDecision(context: AIGameContext): Promise<AIDecision> {
-    const { currentBid, ownDice, ownCards, totalDiceCount, unknownDiceTypes } = context;
+    const { currentBid, ownDice, ownCards, totalDiceCount, unknownDiceTypes, gameMode } = context;
 
-    // Consider playing a card first
-    const cardDecision = this.considerCardPlay(context);
-    if (cardDecision) {
-      return cardDecision;
+    // Consider playing a card first (skip in Classic mode)
+    if (gameMode !== 'classic') {
+      const cardDecision = this.considerCardPlay(context);
+      if (cardDecision) {
+        return cardDecision;
+      }
     }
 
     // If no current bid, make an opening bid
@@ -82,12 +84,13 @@ export class HardStrategy implements AIStrategy {
     );
 
     // Decision logic
-    // 1. Consider Jonti if exact probability is high enough
-    if (exactProb > this.JONTI_EXACT_THRESHOLD) {
+    // 1. Consider Jonti if exact probability is high enough (dynamic threshold)
+    const dynamicJontiThreshold = this.calculateDynamicJontiThreshold(context);
+    if (exactProb > dynamicJontiThreshold) {
       return {
         action: 'jonti',
         confidence: exactProb,
-        reasoning: `Jonti with ${(exactProb * 100).toFixed(1)}% exact probability`
+        reasoning: `Jonti with ${(exactProb * 100).toFixed(1)}% exact probability (threshold: ${(dynamicJontiThreshold * 100).toFixed(1)}%)`
       };
     }
 
@@ -361,6 +364,169 @@ export class HardStrategy implements AIStrategy {
       }
     }
 
+    // Use Gauge for information (early game)
+    if (roundNumber <= 3) {
+      const gaugeCard = ownCards.find(c => c.type === 'gauge');
+      if (gaugeCard && otherPlayers.length > 0) {
+        // Select 2 dice from opponents with most dice
+        const sortedPlayers = [...otherPlayers].sort((a, b) => b.diceCount - a.diceCount);
+        const dieIds: string[] = [];
+        for (const p of sortedPlayers) {
+          for (let i = 0; i < p.diceCount && dieIds.length < 2; i++) {
+            dieIds.push(`${p.id}-${i}`);
+          }
+          if (dieIds.length >= 2) break;
+        }
+        if (dieIds.length >= 2) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: gaugeCard.id,
+              cardType: 'gauge',
+              additionalData: { dieIds }
+            },
+            confidence: 0.6,
+            reasoning: 'Gauge for early information'
+          };
+        }
+      }
+    }
+
+    // Use Wild Shift strategically - shift bid to a face we have more of
+    if (currentBid) {
+      const wildShiftCard = ownCards.find(c => c.type === 'wild_shift');
+      if (wildShiftCard) {
+        const faceCounts = this.countOwnDice(context.ownDice);
+        let bestFace = currentBid.faceValue;
+        let bestCount = faceCounts[currentBid.faceValue] + (currentBid.faceValue !== 1 ? faceCounts[1] : 0);
+        
+        for (let face = 2; face <= 6; face++) {
+          if (face === currentBid.faceValue) continue;
+          const count = faceCounts[face] + faceCounts[1];
+          if (count > bestCount) {
+            bestCount = count;
+            bestFace = face;
+          }
+        }
+        
+        if (bestFace !== currentBid.faceValue && bestCount >= 2) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: wildShiftCard.id,
+              cardType: 'wild_shift',
+              additionalData: { faceValue: bestFace }
+            },
+            confidence: 0.6,
+            reasoning: `Wild shift to face ${bestFace} (have ${bestCount} matching)`
+          };
+        }
+      }
+    }
+
+    // Use Phantom Bid for strategic bluffing
+    const phantomBidCard = ownCards.find(c => c.type === 'phantom_bid');
+    if (phantomBidCard && currentBid && Math.random() < 0.25) {
+      return {
+        action: 'play_card',
+        cardPlay: {
+          cardId: phantomBidCard.id,
+          cardType: 'phantom_bid'
+        },
+        confidence: 0.5,
+        reasoning: 'Phantom bid for strategic flexibility'
+      };
+    }
+
+    // Use Reroll on worst die (showing 5 or 6)
+    const rerollCard = ownCards.find(c => c.type === 'reroll_one');
+    if (rerollCard) {
+      const worstDie = context.ownDice.reduce((worst, die) => 
+        die.faceValue > worst.faceValue ? die : worst
+      , context.ownDice[0]);
+      
+      if (worstDie && worstDie.faceValue >= 5) {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: rerollCard.id,
+            cardType: 'reroll_one',
+            targetDieId: worstDie.id
+          },
+          confidence: 0.5,
+          reasoning: `Reroll die showing ${worstDie.faceValue}`
+        };
+      }
+    }
+
+    // Use Polish on lowest die type
+    const polishCard = ownCards.find(c => c.type === 'polish');
+    if (polishCard) {
+      const dieTypes: DieType[] = ['d3', 'd4', 'd6', 'd8'];
+      for (const type of dieTypes) {
+        const die = context.ownDice.find(d => d.type === type);
+        if (die) {
+          return {
+            action: 'play_card',
+            cardPlay: {
+              cardId: polishCard.id,
+              cardType: 'polish',
+              targetDieId: die.id
+            },
+            confidence: 0.55,
+            reasoning: `Polish ${type} die`
+          };
+        }
+      }
+    }
+
+    // Use Blind Swap if we have a bad die
+    const blindSwapCard = ownCards.find(c => c.type === 'blind_swap');
+    if (blindSwapCard && otherPlayers.length > 0) {
+      const worstDie = context.ownDice.reduce((worst, die) => 
+        die.faceValue > worst.faceValue ? die : worst
+      , context.ownDice[0]);
+      
+      if (worstDie && worstDie.faceValue >= 5) {
+        const target = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: blindSwapCard.id,
+            cardType: 'blind_swap',
+            targetPlayerId: target.id,
+            targetDieId: worstDie.id
+          },
+          confidence: 0.45,
+          reasoning: 'Blind swap bad die'
+        };
+      }
+    }
+
+    // Use Late Dudo if previous bid looks suspicious
+    const lateDudoCard = ownCards.find(c => c.type === 'late_dudo');
+    if (lateDudoCard && context.previousBids && context.previousBids.length > 0) {
+      const lastBid = context.previousBids[context.previousBids.length - 1];
+      const lastBidProb = this.probEngine.calculateBidProbability(
+        context.ownDice.map(d => ({ type: d.type, faceValue: d.faceValue })),
+        context.unknownDiceTypes,
+        lastBid.quantity,
+        lastBid.faceValue
+      );
+      
+      if (lastBidProb < 0.35) {
+        return {
+          action: 'play_card',
+          cardPlay: {
+            cardId: lateDudoCard.id,
+            cardType: 'late_dudo'
+          },
+          confidence: 1 - lastBidProb,
+          reasoning: `Late dudo on bid with ${(lastBidProb * 100).toFixed(1)}% probability`
+        };
+      }
+    }
+
     return null;
   }
 
@@ -386,6 +552,46 @@ export class HardStrategy implements AIStrategy {
     const preferenceAdjustment = (facePreference - 1) * 0.1;
 
     return Math.max(0, Math.min(1, baseProbability - bluffAdjustment + preferenceAdjustment));
+  }
+
+  /**
+   * Calculate dynamic Jonti threshold based on player's dice count
+   * More dice = lower threshold (more willing to risk)
+   * Fewer dice = higher threshold (more conservative)
+   */
+  private calculateDynamicJontiThreshold(context: AIGameContext): number {
+    const ownDiceCount = context.ownDice.length;
+    const totalDiceCount = context.totalDiceCount;
+    
+    // Base threshold
+    let threshold = this.JONTI_EXACT_THRESHOLD;
+    
+    // Adjust based on own dice count
+    if (ownDiceCount >= 4) {
+      // Lots of dice - can afford to be more aggressive
+      threshold = Math.max(0.15, threshold - 0.1);
+    } else if (ownDiceCount === 3) {
+      // Moderate dice count - use base threshold
+      threshold = this.JONTI_EXACT_THRESHOLD;
+    } else if (ownDiceCount === 2) {
+      // Getting low - be more conservative
+      threshold = Math.min(0.35, threshold + 0.1);
+    } else {
+      // Last die - very conservative (Jonti failure = elimination)
+      threshold = Math.min(0.45, threshold + 0.2);
+    }
+    
+    // Adjust based on relative position
+    const avgDice = totalDiceCount / context.players.filter(p => !p.isEliminated).length;
+    if (ownDiceCount > avgDice * 1.2) {
+      // Ahead - can take more risks
+      threshold = Math.max(0.15, threshold - 0.05);
+    } else if (ownDiceCount < avgDice * 0.8) {
+      // Behind - be more conservative
+      threshold = Math.min(0.4, threshold + 0.05);
+    }
+    
+    return threshold;
   }
 
   /**

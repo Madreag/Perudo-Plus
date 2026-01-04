@@ -29,7 +29,23 @@ export const AI_DIFFICULTY_DESCRIPTIONS: Record<AIDifficulty, string> = {
 };
 
 // AI Action Types
-export type AIActionType = 'bid' | 'dudo' | 'calza' | 'jonti' | 'play_card';
+export type AIActionType = 'bid' | 'dudo' | 'calza' | 'jonti' | 'late_dudo' | 'play_card';
+
+// Shared type for card play actions (used by both AI and game execution)
+export interface AICardPlay {
+  cardId: string;
+  cardType: CardType;
+  targetPlayerId?: string;
+  targetDieId?: string;
+  additionalData?: {
+    faceValue?: number;      // For wild_shift
+    dieIds?: string[];       // For gauge
+    claimedFace?: number;    // For false_tell
+    claimedType?: string;    // For false_tell
+    dieIndex?: number;       // Alternative die targeting
+    [key: string]: any;      // Allow other custom data
+  };
+}
 
 // AI Decision Result
 export interface AIDecision {
@@ -38,13 +54,7 @@ export interface AIDecision {
     quantity: number;
     faceValue: number;
   };
-  cardPlay?: {
-    cardId: string;
-    cardType: CardType;
-    targetPlayerId?: string;
-    targetDieId?: string;
-    additionalData?: any;
-  };
+  cardPlay?: AICardPlay;
   confidence: number;  // 0-1 confidence in the decision
   reasoning?: string;  // Optional explanation for debugging
 }
@@ -75,6 +85,9 @@ export interface KnownDiceInfo {
   roundNumber: number;  // When this info was obtained
 }
 
+// Game mode type (imported from shared types)
+export type GameMode = 'classic' | 'tactical' | 'chaos';
+
 // AI Game Context - all information available to AI
 export interface AIGameContext {
   // Own information
@@ -86,6 +99,7 @@ export interface AIGameContext {
   currentBid: Bid | null;
   previousBids: Bid[];
   roundNumber: number;
+  gameMode: GameMode;  // Current game mode for strategy adjustment
   
   // Other players (public info)
   players: AIPlayerInfo[];

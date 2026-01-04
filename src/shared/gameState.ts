@@ -330,6 +330,87 @@ export function callDudo(state: GameState, callerId: string): { newState: GameSt
 }
 
 /**
+ * Call Late Dudo (challenge a previous bid instead of the current one)
+ * Requires the lateDudo active effect to be set
+ */
+export function callLateDudo(state: GameState, callerId: string, targetBidIndex?: number): { newState: GameState; result: DudoResult } {
+  const currentPlayer = getCurrentPlayer(state);
+  if (!currentPlayer || currentPlayer.id !== callerId) {
+    throw new Error('Not your turn');
+  }
+
+  // Check if player has lateDudo effect active
+  const player = state.players.find(p => p.id === callerId);
+  if (!player?.activeEffects?.lateDudo) {
+    throw new Error('Late Dudo effect not active');
+  }
+
+  // Get the previous bid to challenge
+  if (!state.previousBids || state.previousBids.length === 0) {
+    throw new Error('No previous bids to challenge');
+  }
+
+  // Default to the most recent previous bid if no index specified
+  const bidIndex = targetBidIndex ?? state.previousBids.length - 1;
+  if (bidIndex < 0 || bidIndex >= state.previousBids.length) {
+    throw new Error('Invalid bid index');
+  }
+
+  const bid = state.previousBids[bidIndex];
+  const bidder = state.players.find(p => p.id === bid.playerId);
+  if (!bidder) {
+    throw new Error('Bidder not found');
+  }
+
+  // Count all dice
+  const allDice = getActivePlayers(state).map(p => p.dice);
+  const actualCount = countTotalDiceFace(allDice, bid.faceValue, bid.faceValue !== 1);
+
+  // Late Dudo is successful if actual count is LESS than the challenged bid quantity
+  const dudoSuccess = actualCount < bid.quantity;
+  const loserId = dudoSuccess ? bid.playerId : callerId;
+
+  // Reveal all dice
+  const revealedDice = getActivePlayers(state).map(p => ({
+    playerId: p.id,
+    dice: p.dice
+  }));
+
+  const result: DudoResult = {
+    callerId,
+    targetPlayerId: bid.playerId,
+    bid,
+    actualCount,
+    success: dudoSuccess,
+    loserId,
+    revealedDice
+  };
+
+  // Clear the lateDudo effect
+  const updatedPlayers = state.players.map(p => {
+    if (p.id === callerId) {
+      return {
+        ...p,
+        activeEffects: {
+          ...p.activeEffects,
+          lateDudo: false
+        }
+      };
+    }
+    return p;
+  });
+
+  const newState: GameState = {
+    ...state,
+    players: updatedPlayers,
+    phase: 'dudo_called',
+    lastDudoResult: result
+  };
+
+  return { newState, result };
+}
+
+/**
  * Call Jonti (claim the current bid is exactly correct)
  * If correct: caller gains a die back
  * If incorrect: caller loses a die
