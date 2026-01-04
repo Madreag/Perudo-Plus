@@ -73,14 +73,26 @@ export class GameClient {
       this.network.listSessions();
     });
 
-    this.network.on('onSessionsList', (sessions, previousSessionId) => {
-      console.log('Sessions list:', sessions.length, 'sessions');
+    this.network.on('onSessionsList', (sessions, previousSessionId, browserPlayers) => {
+      console.log('Sessions list:', sessions.length, 'sessions,', browserPlayers.length, 'browser players');
       this.ui.updateSessionList(sessions, previousSessionId);
+      this.ui.updateBrowserPlayers(browserPlayers);
     });
 
-    this.network.on('onSessionUpdated', (sessions, previousSessionId) => {
-      console.log('Sessions updated:', sessions.length, 'sessions');
+    this.network.on('onSessionUpdated', (sessions, previousSessionId, browserPlayers) => {
+      console.log('Sessions updated:', sessions.length, 'sessions,', browserPlayers.length, 'browser players');
       this.ui.updateSessionList(sessions, previousSessionId);
+      this.ui.updateBrowserPlayers(browserPlayers);
+    });
+
+    this.network.on('onBrowserPlayersList', (players) => {
+      console.log('Browser players list:', players.length, 'players');
+      this.ui.updateBrowserPlayers(players);
+    });
+
+    this.network.on('onBrowserChat', (identityId, playerName, message) => {
+      console.log('Browser chat from', playerName, ':', message);
+      this.ui.addBrowserChatMessage(playerName, message);
     });
 
     this.network.on('onSessionCreated', (sessionId, sessionName) => {
@@ -356,6 +368,11 @@ export class GameClient {
       this.network.deleteSession();
     };
 
+    this.ui.onSendBrowserChat = (message) => {
+      this.network.sendBrowserChat(message);
+    };
+
+    // Game events
     // Game events
     this.ui.onStartGame = () => {
       this.network.startGame();

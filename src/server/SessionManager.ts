@@ -13,7 +13,8 @@ import {
   ServerMessage,
   SessionInfo,
   CreateSessionPayload,
-  JoinSessionPayload
+  JoinSessionPayload,
+  BrowserPlayerInfo
 } from '../shared/types';
 import { GameSession } from './GameSession';
 
@@ -153,6 +154,9 @@ export class SessionManager {
       case 'delete_session':
         this.handleDeleteSession(clientId);
         return;
+      case 'browser_chat':
+        this.handleBrowserChat(clientId, message.payload);
+        return;
     }
 
     // Forward game messages to the appropriate session
@@ -194,6 +198,9 @@ export class SessionManager {
     });
 
     console.log(`Client ${clientId} registered as "${payload.playerName}" with identity ${identityId}`);
+    
+    // Broadcast updated browser players list to all browser clients
+    this.broadcastBrowserPlayersUpdate();
   }
 
   private handleListSessions(clientId: string): void {
@@ -201,12 +208,14 @@ export class SessionManager {
     if (!client) return;
 
     const sessions = this.getSessionList();
+    const browserPlayers = this.getBrowserPlayers();
     
     this.send(client.ws, {
       type: 'sessions_list',
       payload: {
         sessions,
-        previousSessionId: client.previousSessionId
+        previousSessionId: client.previousSessionId,
+        browserPlayers
       }
     });
   }
@@ -260,6 +269,9 @@ export class SessionManager {
 
     console.log(`Session "${payload.sessionName}" created by ${payload.hostName}`);
     this.broadcastSessionUpdate();
+    
+    // Broadcast updated browser players list (player left browser)
+    this.broadcastBrowserPlayersUpdate();
   }
 
   private handleJoinSession(clientId: string, payload: JoinSessionPayload): void {
@@ -307,6 +319,9 @@ export class SessionManager {
     });
 
     console.log(`${payload.playerName} joined session "${session.getSessionInfo().name}"`);
+    
+    // Broadcast updated browser players list (player left browser)
+    this.broadcastBrowserPlayersUpdate();
   }
 
   private handleLeaveSession(clientId: string): void {
@@ -332,6 +347,9 @@ export class SessionManager {
 
     console.log(`${client.playerName} left session "${sessionName}"`);
     this.broadcastSessionUpdate();
+    
+    // Broadcast updated browser players list
+    this.broadcastBrowserPlayersUpdate();
   }
 
   private handleUpdateSessionSettings(clientId: string, payload: { mode?: string; stage?: string; maxPlayers?: number }): void {
@@ -422,6 +440,8 @@ export class SessionManager {
     const client = this.clients.get(clientId);
     if (!client) return;
 
+    const wasInBrowser = !client.currentSessionId && client.identityId;
+
     // If in a session, notify the session
     if (client.currentSessionId) {
       const session = this.sessions.get(client.currentSessionId);
@@ -433,6 +453,11 @@ export class SessionManager {
     this.clients.delete(clientId);
     console.log(`Client ${clientId} disconnected`);
     this.broadcastSessionUpdate();
+    
+    // If the player was in the browser, update browser players list
+    if (wasInBrowser) {
+      this.broadcastBrowserPlayersUpdate();
+    }
   }
 
   private getSessionList(): SessionInfo[] {
@@ -455,13 +480,15 @@ export class SessionManager {
   private broadcastSessionUpdate(): void {
     // Send updated session list to all clients not in a session
     const sessions = this.getSessionList();
+    const browserPlayers = this.getBrowserPlayers();
     for (const [clientId, client] of this.clients.entries()) {
       if (!client.currentSessionId && client.identityId) {
         this.send(client.ws, {
           type: 'session_updated',
           payload: {
             sessions,
-            previousSessionId: client.previousSessionId
+            previousSessionId: client.previousSessionId,
+            browserPlayers
           }
         });
       }
@@ -484,6 +511,58 @@ export class SessionManager {
         this.send(client.ws, message);
       }
     }
+  }
+
+  private broadcastToBrowser(message: ServerMessage): void {
+    for (const [clientId, client] of this.clients.entries()) {
+      if (!client.currentSessionId && client.identityId) {
+        this.send(client.ws, message);
+      }
+    }
+  }
+
+  private getBrowserPlayers(): BrowserPlayerInfo[] {
+    const players: BrowserPlayerInfo[] = [];
+    for (const [clientId, client] of this.clients.entries()) {
+      if (!client.currentSessionId && client.identityId && client.playerName) {
+        players.push({
+          identityId: client.identityId,
+          playerName: client.playerName
+        });
+      }
+    }
+    return players;
+  }
+
+  private broadcastBrowserPlayersUpdate(): void {
+    const players = this.getBrowserPlayers();
+    this.broadcastToBrowser({
+      type: 'browser_players_list',
+      payload: { players }
+    });
+  }
+
+  private handleBrowserChat(clientId: string, payload: { message: string }): void {
+    const client = this.clients.get(clientId);
+    if (!client || !client.identityId || !client.playerName) {
+      return;
+    }
+
+    // Only allow chat from clients in the browser (not in a session)
+    if (client.currentSessionId) {
+      this.sendError(client.ws, 'Cannot use browser chat while in a session', 'IN_SESSION');
+      return;
+    }
+
+    // Broadcast the chat message to all browser clients
+    this.broadcastToBrowser({
+      type: 'browser_chat',
+      payload: {
+        identityId: client.identityId,
+        playerName: client.playerName,
+        message: payload.message
+      }
+    });
   }
 
   private sendError(ws: WebSocket, message: string, code: string): void {

@@ -14,7 +14,8 @@ import {
   SessionInfo,
   GameSettings,
   GameMode,
-  StageType
+  StageType,
+  BrowserPlayerInfo
 } from '../shared/types';
 
 export class UIManager {
@@ -42,6 +43,7 @@ export class UIManager {
   public onRefreshSessions: (() => void) | null = null;
   public onUpdateSessionSettings: ((settings: { mode?: string; maxPlayers?: number; stage?: string }) => void) | null = null;
   public onDeleteSession: (() => void) | null = null;
+  public onSendBrowserChat: ((message: string) => void) | null = null;
   
   // Game callbacks
   public onStartGame: (() => void) | null = null;
@@ -91,26 +93,50 @@ export class UIManager {
         <!-- Server Browser Screen -->
         <div id="browser-screen" class="screen">
           <div class="browser-container">
-            <div class="panel browser-panel">
-              <div class="browser-header">
-                <h2>🎮 Game Sessions</h2>
-                <div class="browser-actions">
-                  <div class="btn-with-help">
-                    <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
-                    <span class="help-icon">?<span class="tooltip">Refresh the list of available game sessions</span></span>
-                  </div>
-                  <div class="btn-with-help">
-                    <button id="create-session-btn" class="btn primary">+ Create Session</button>
-                    <span class="help-icon">?<span class="tooltip">Create a new game session that others can join. You'll be the host.</span></span>
+            <!-- Left side: Sessions list -->
+            <div class="browser-main">
+              <div class="panel browser-panel">
+                <div class="browser-header">
+                  <h2>🎮 Game Sessions</h2>
+                  <div class="browser-actions">
+                    <div class="btn-with-help">
+                      <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
+                      <span class="help-icon">?<span class="tooltip">Refresh the list of available game sessions</span></span>
+                    </div>
+                    <div class="btn-with-help">
+                      <button id="create-session-btn" class="btn primary">+ Create Session</button>
+                      <span class="help-icon">?<span class="tooltip">Create a new game session that others can join. You'll be the host.</span></span>
+                    </div>
                   </div>
                 </div>
+                <div id="session-list" class="session-list">
+                  <div class="session-empty">Loading sessions...</div>
+                </div>
+                <div class="browser-footer">
+                  <span id="browser-player-name" class="browser-player-name"></span>
+                  <button id="browser-disconnect-btn" class="btn secondary">Disconnect</button>
+                </div>
               </div>
-              <div id="session-list" class="session-list">
-                <div class="session-empty">Loading sessions...</div>
+            </div>
+            <!-- Right side: Players list and Chat -->
+            <div class="browser-sidebar">
+              <!-- Browser Players Panel -->
+              <div class="panel browser-players-panel">
+                <h3>👥 Players Online</h3>
+                <div id="browser-players-list" class="browser-players-list">
+                  <div class="browser-players-empty">No players in lobby</div>
+                </div>
               </div>
-              <div class="browser-footer">
-                <span id="browser-player-name" class="browser-player-name"></span>
-                <button id="browser-disconnect-btn" class="btn secondary">Disconnect</button>
+              <!-- Browser Chat Panel -->
+              <div class="panel browser-chat-panel">
+                <div class="chat-header">
+                  <span class="chat-title">💬 Lobby Chat</span>
+                </div>
+                <div id="browser-chat-messages" class="chat-messages"></div>
+                <div class="chat-input-container">
+                  <input type="text" id="browser-chat-input" class="chat-input" placeholder="Type a message..." maxlength="200">
+                  <button id="browser-chat-send" class="chat-send-btn">Send</button>
+                </div>
               </div>
             </div>
           </div>
@@ -299,7 +325,7 @@ export class UIManager {
                 </div>
                 <div class="btn-with-help">
                   <button id="jonti-btn" class="btn warning">Call Jonti!</button>
-                  <span class="help-icon">?<span class="tooltip">Claim the bid is EXACTLY correct! High risk, high reward. Win: previous bidder loses a die. Lose: you lose a die.</span></span>
+                  <span class="help-icon">?<span class="tooltip">Claim the bid is EXACTLY correct! High risk, high reward. Win: you gain a die. Lose: you lose a die.</span></span>
                 </div>
               </div>
             </div>
@@ -597,6 +623,17 @@ export class UIManager {
       this.showScreen('connection-screen');
     });
 
+    // Server Browser - Chat send button
+    document.getElementById('browser-chat-send')?.addEventListener('click', () => {
+      this.sendBrowserChatMessage();
+    });
+
+    // Server Browser - Chat input enter key
+    document.getElementById('browser-chat-input')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        this.sendBrowserChatMessage();
+      }
+    });
     // Create Session Modal - Cancel
     document.getElementById('cancel-create-session')?.addEventListener('click', () => {
       this.hideModal('create-session-modal');
@@ -1132,18 +1169,139 @@ export class UIManager {
       .browser-container {
         display: flex;
         justify-content: center;
-        align-items: center;
+        align-items: flex-start;
         width: 100%;
         height: 100vh;
         padding: 20px;
+        gap: 20px;
+      }
+
+      .browser-main {
+        flex: 1;
+        max-width: 700px;
+        height: 80vh;
+        display: flex;
+        flex-direction: column;
       }
 
       .browser-panel {
         width: 100%;
-        max-width: 900px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .browser-sidebar {
+        width: 300px;
         height: 80vh;
         display: flex;
         flex-direction: column;
+        gap: 16px;
+      }
+
+      .browser-players-panel {
+        flex: 0 0 auto;
+        max-height: 40%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .browser-players-panel h3 {
+        margin: 0 0 12px 0;
+        color: #4ecdc4;
+      }
+
+      .browser-players-list {
+        flex: 1;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 8px;
+      }
+
+      .browser-players-empty {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+        padding: 20px;
+        font-style: italic;
+        font-size: 0.9em;
+      }
+
+      .browser-player-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin-bottom: 6px;
+      }
+
+      .browser-player-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .browser-player-icon {
+        font-size: 1.1em;
+      }
+
+      .browser-player-name {
+        color: #fff;
+        font-size: 0.95em;
+      }
+
+      .browser-chat-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .browser-chat-panel .chat-header {
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px 8px 0 0;
+      }
+
+      .browser-chat-panel .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 12px;
+        min-height: 150px;
+      }
+
+      .browser-chat-panel .chat-input-container {
+        display: flex;
+        gap: 8px;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 0 0 8px 8px;
+      }
+
+      .browser-chat-panel .chat-input {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.3);
+        color: white;
+        font-size: 0.9em;
+      }
+
+      .browser-chat-panel .chat-send-btn {
+        padding: 8px 16px;
+        background: #4ecdc4;
+        border: none;
+        border-radius: 6px;
+        color: #1a1a2e;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .browser-chat-panel .chat-send-btn:hover {
+        background: #45b7aa;
       }
 
       .browser-header {
@@ -2477,6 +2635,40 @@ export class UIManager {
       /* Mobile Responsive Styles */
       /* ============================================ */
       @media (max-width: 768px) {
+        /* Browser Screen */
+        .browser-container {
+          flex-direction: column;
+          align-items: center;
+          height: auto;
+          min-height: 100vh;
+          padding: 10px;
+          overflow-y: auto;
+        }
+
+        .browser-main {
+          width: 100%;
+          max-width: none;
+          height: auto;
+          min-height: 300px;
+        }
+
+        .browser-sidebar {
+          width: 100%;
+          height: auto;
+          flex-direction: row;
+          gap: 10px;
+        }
+
+        .browser-players-panel {
+          flex: 1;
+          max-height: 200px;
+        }
+
+        .browser-chat-panel {
+          flex: 1;
+          min-height: 200px;
+        }
+
         /* Connection Screen */
         .connection-panel {
           width: 90%;
@@ -2487,7 +2679,6 @@ export class UIManager {
         .connection-panel h1 {
           font-size: 1.8em;
         }
-
         /* Lobby Screen */
         .lobby-container {
           flex-direction: column;
@@ -2946,6 +3137,52 @@ export class UIManager {
         }
       });
     });
+  }
+
+  public updateBrowserPlayers(players: BrowserPlayerInfo[]): void {
+    const listEl = document.getElementById('browser-players-list');
+    if (!listEl) return;
+
+    if (players.length === 0) {
+      listEl.innerHTML = '<div class="browser-players-empty">No players in lobby</div>';
+      return;
+    }
+
+    listEl.innerHTML = players.map(player => `
+      <div class="browser-player-item">
+        <span class="browser-player-icon">👤</span>
+        <span class="browser-player-name">${this.escapeHtml(player.playerName)}</span>
+      </div>
+    `).join('');
+  }
+
+  public addBrowserChatMessage(playerName: string, message: string): void {
+    const messagesEl = document.getElementById('browser-chat-messages');
+    if (!messagesEl) return;
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'chat-message';
+    messageEl.innerHTML = `<span class="chat-sender">${this.escapeHtml(playerName)}:</span> ${this.escapeHtml(message)}`;
+    messagesEl.appendChild(messageEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  private sendBrowserChatMessage(): void {
+    const input = document.getElementById('browser-chat-input') as HTMLInputElement;
+    if (!input) return;
+
+    const message = input.value.trim();
+    if (message) {
+      this.onSendBrowserChat?.(message);
+      input.value = '';
+    }
+  }
+
+  public clearBrowserChat(): void {
+    const messagesEl = document.getElementById('browser-chat-messages');
+    if (messagesEl) {
+      messagesEl.innerHTML = '';
+    }
   }
 
   private escapeHtml(text: string): string {

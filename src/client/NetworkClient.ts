@@ -13,7 +13,8 @@ import {
   DudoResult,
   JontiResult,
   SessionInfo,
-  GameSettings
+  GameSettings,
+  BrowserPlayerInfo
 } from '../shared/types';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
@@ -21,13 +22,15 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 export interface NetworkClientEvents {
   // Session management events
   onRegistered: (identityId: string, playerName: string, previousSessionId: string | null) => void;
-  onSessionsList: (sessions: SessionInfo[], previousSessionId: string | null) => void;
+  onSessionsList: (sessions: SessionInfo[], previousSessionId: string | null, browserPlayers: BrowserPlayerInfo[]) => void;
   onSessionCreated: (sessionId: string, sessionName: string) => void;
   onSessionJoined: (sessionId: string, sessionName: string) => void;
   onSessionLeft: () => void;
-  onSessionUpdated: (sessions: SessionInfo[], previousSessionId: string | null) => void;
+  onSessionUpdated: (sessions: SessionInfo[], previousSessionId: string | null, browserPlayers: BrowserPlayerInfo[]) => void;
   onSessionSettingsUpdated: (settings: { mode: string; maxPlayers: number; stage: string }) => void;
   onSessionDeleted: () => void;
+  onBrowserPlayersList: (players: BrowserPlayerInfo[]) => void;
+  onBrowserChat: (identityId: string, playerName: string, message: string) => void;
   // Game events
   onConnectionStateChange: (state: ConnectionState) => void;
   onConnectionAccepted: (playerId: string, isHost: boolean) => void;
@@ -52,6 +55,7 @@ export interface NetworkClientEvents {
   onGameResumed: (resumedBy: string) => void;
   onPlayerKicked: (reason: string) => void;
 }
+
 
 export class NetworkClient {
   private ws: WebSocket | null = null;
@@ -170,7 +174,8 @@ export class NetworkClient {
       case 'sessions_list':
         this.events.onSessionsList?.(
           message.payload.sessions,
-          message.payload.previousSessionId
+          message.payload.previousSessionId,
+          message.payload.browserPlayers || []
         );
         break;
 
@@ -200,7 +205,8 @@ export class NetworkClient {
       case 'session_updated':
         this.events.onSessionUpdated?.(
           message.payload.sessions,
-          message.payload.previousSessionId
+          message.payload.previousSessionId,
+          message.payload.browserPlayers || []
         );
         break;
 
@@ -211,6 +217,18 @@ export class NetworkClient {
       case 'session_deleted':
         this.currentSessionId = null;
         this.events.onSessionDeleted?.();
+        break;
+
+      case 'browser_players_list':
+        this.events.onBrowserPlayersList?.(message.payload.players || []);
+        break;
+
+      case 'browser_chat':
+        this.events.onBrowserChat?.(
+          message.payload.identityId,
+          message.payload.playerName,
+          message.payload.message
+        );
         break;
 
       // Game messages
@@ -494,6 +512,13 @@ export class NetworkClient {
   public sendChat(message: string): void {
     this.send({
       type: 'chat',
+      payload: { message }
+    });
+  }
+
+  public sendBrowserChat(message: string): void {
+    this.send({
+      type: 'browser_chat',
       payload: { message }
     });
   }

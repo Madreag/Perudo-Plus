@@ -220,6 +220,16 @@ export interface SessionListPayload {
   previousSessionId: string | null; // Session the player was in before disconnect
 }
 
+// Browser player info (for session browser)
+export interface BrowserPlayerInfo {
+  identityId: string;
+  playerName: string;
+}
+
+export interface BrowserChatPayload {
+  message: string;
+}
+
 export interface CreateSessionPayload {
   sessionName: string;
   hostName: string;
@@ -246,6 +256,7 @@ export type ClientMessageType =
   | 'leave_session'      // Leave current session (back to browser)
   | 'update_session_settings' // Update session settings (host only)
   | 'delete_session'     // Delete the session (host only)
+  | 'browser_chat'       // Chat message in session browser
   | 'join_game'
   | 'start_game'
   | 'make_bid'
@@ -271,6 +282,8 @@ export type ServerMessageType =
   | 'session_updated'     // Session info updated (for browser refresh)
   | 'session_settings_updated' // Session settings changed by host
   | 'session_deleted'     // Session was deleted by host
+  | 'browser_players_list' // List of players in session browser
+  | 'browser_chat'        // Chat message in session browser
   | 'connection_accepted'
   | 'player_joined'
   | 'player_left'
