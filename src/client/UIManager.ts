@@ -1593,19 +1593,56 @@ export class UIManager {
         box-shadow: 0 4px 20px rgba(78, 205, 196, 0.6);
         z-index: 10000;
         pointer-events: none;
-        animation: cardDrawAnim 0.8s ease-out forwards;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
       }
 
-      .card-drawing::before {
-        content: '✨';
+      .card-drawing-label {
         position: absolute;
-        top: 50%;
+        top: -28px;
         left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 24px;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.85);
+        color: #fff;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        white-space: nowrap;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
       }
 
-      @keyframes cardDrawAnim {
+      .card-drawing-to-self .card-drawing-label {
+        background: rgba(78, 205, 196, 0.9);
+        color: #fff;
+        border-color: #6eeee6;
+        animation: labelPulse 0.3s ease-in-out infinite alternate;
+      }
+
+      .card-drawing-icon {
+        font-size: 32px;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+      }
+
+      /* Animation for cards going to other players */
+      .card-drawing-to-other {
+        animation: cardDrawToOther 0.9s ease-out forwards;
+      }
+
+      /* Animation for cards going to current player - more satisfying snap */
+      .card-drawing-to-self {
+        animation: cardDrawToSelf 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      }
+
+      @keyframes labelPulse {
+        from { transform: translateX(-50%) scale(1); }
+        to { transform: translateX(-50%) scale(1.05); }
+      }
+
+      @keyframes cardDrawToOther {
         0% {
           opacity: 1;
           transform: scale(1) rotateY(0deg) translate(0, 0);
@@ -1624,7 +1661,57 @@ export class UIManager {
         }
         100% {
           opacity: 0;
-          transform: scale(0.6) rotateY(180deg) translate(var(--target-x), var(--target-y));
+          transform: scale(0.8) rotateY(180deg) translate(var(--target-x), var(--target-y));
+        }
+      }
+
+      @keyframes cardDrawToSelf {
+        0% {
+          opacity: 1;
+          transform: scale(1) rotateY(0deg) translate(0, 0);
+          box-shadow: 0 4px 20px rgba(78, 205, 196, 0.6);
+        }
+        15% {
+          opacity: 1;
+          transform: scale(1.2) rotateY(0deg) translate(0, -40px);
+          box-shadow: 0 8px 30px rgba(78, 205, 196, 0.8);
+        }
+        40% {
+          opacity: 1;
+          transform: scale(1.1) rotateY(180deg) translate(calc(var(--target-x) * 0.4), calc(var(--target-y) * 0.4 - 50px));
+          box-shadow: 0 12px 40px rgba(78, 205, 196, 1);
+        }
+        70% {
+          opacity: 1;
+          transform: scale(1.05) rotateY(360deg) translate(calc(var(--target-x) * 0.85), calc(var(--target-y) * 0.85));
+          box-shadow: 0 8px 30px rgba(78, 205, 196, 0.9);
+        }
+        85% {
+          opacity: 1;
+          transform: scale(1.15) rotateY(360deg) translate(var(--target-x), var(--target-y));
+          box-shadow: 0 0 50px rgba(78, 205, 196, 1), 0 0 80px rgba(78, 205, 196, 0.6);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.3) rotateY(360deg) translate(var(--target-x), var(--target-y));
+          box-shadow: 0 0 60px rgba(78, 205, 196, 0.8);
+        }
+      }
+
+      /* Highlight effect on the cards container when receiving a card */
+      .card-receiving {
+        animation: cardReceiveHighlight 1.2s ease-out;
+      }
+
+      @keyframes cardReceiveHighlight {
+        0% {
+          box-shadow: inset 0 0 0 rgba(78, 205, 196, 0);
+        }
+        50% {
+          box-shadow: inset 0 0 30px rgba(78, 205, 196, 0.6), 0 0 20px rgba(78, 205, 196, 0.4);
+        }
+        100% {
+          box-shadow: inset 0 0 0 rgba(78, 205, 196, 0);
         }
       }
 
@@ -3268,32 +3355,59 @@ export class UIManager {
     const startX = containerRect.left + containerRect.width / 2;
     const startY = containerRect.top + containerRect.height / 2;
     
-    // Find target element - either the player's card in the players panel or the private panel
-    let targetRect: DOMRect;
+    // Determine if this card is going to the current player
+    const isForCurrentPlayer = targetPlayerId === this.playerId;
     
+    // Get the player name for display
+    let playerName = 'Unknown';
     if (targetPlayerId) {
-      // Try to find the player element in the players panel
-      const playerElement = document.querySelector(`[data-player-id="${targetPlayerId}"]`);
-      if (playerElement) {
-        targetRect = playerElement.getBoundingClientRect();
-      } else {
-        // Fallback to private panel if it's the current player
-        const privatePanel = document.getElementById('private-panel');
-        if (!privatePanel) return;
-        targetRect = privatePanel.getBoundingClientRect();
+      const player = this.gameState?.players.find(p => p.id === targetPlayerId);
+      playerName = player?.name || 'Unknown';
+      if (isForCurrentPlayer) {
+        playerName = 'You';
       }
-    } else {
-      // Fallback to private panel
-      const privatePanel = document.getElementById('private-panel');
-      if (!privatePanel) return;
-      targetRect = privatePanel.getBoundingClientRect();
     }
+    
+    // Find target element
+    let targetRect: DOMRect;
+    let targetElement: Element | null = null;
+    
+    if (isForCurrentPlayer) {
+      // Target the "my-cards" container for a satisfying snap
+      targetElement = document.getElementById('my-cards');
+      if (!targetElement) {
+        targetElement = document.getElementById('private-panel');
+      }
+    } else if (targetPlayerId) {
+      // Try to find the player element in the players panel
+      targetElement = document.querySelector(`[data-player-id="${targetPlayerId}"]`);
+    }
+    
+    if (!targetElement) {
+      // Fallback to private panel
+      targetElement = document.getElementById('private-panel');
+    }
+    
+    if (!targetElement) return;
+    targetRect = targetElement.getBoundingClientRect();
     
     // Create animated card element
     const animCard = document.createElement('div');
-    animCard.className = 'card-drawing';
+    animCard.className = isForCurrentPlayer ? 'card-drawing card-drawing-to-self' : 'card-drawing card-drawing-to-other';
     animCard.style.left = `${startX - 35}px`;
     animCard.style.top = `${startY - 50}px`;
+    
+    // Add player name label to the card
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'card-drawing-label';
+    nameLabel.textContent = isForCurrentPlayer ? '→ You!' : `→ ${playerName}`;
+    animCard.appendChild(nameLabel);
+    
+    // Add card icon
+    const cardIcon = document.createElement('div');
+    cardIcon.className = 'card-drawing-icon';
+    cardIcon.textContent = '🃏';
+    animCard.appendChild(cardIcon);
     
     // Calculate target position (center of target element)
     const targetX = targetRect.left + targetRect.width / 2;
@@ -3305,11 +3419,21 @@ export class UIManager {
     
     document.body.appendChild(animCard);
     
+    // For current player, add a highlight effect to the cards container
+    if (isForCurrentPlayer && targetElement) {
+      targetElement.classList.add('card-receiving');
+      setTimeout(() => {
+        targetElement?.classList.remove('card-receiving');
+      }, 1200);
+    }
+    
     // Remove after animation completes
+    const animDuration = isForCurrentPlayer ? 1000 : 900;
     setTimeout(() => {
       animCard.remove();
-    }, 900);
+    }, animDuration);
   }
+
 
   public addSystemMessage(message: string, isCardPlay: boolean = false): void {
     // Add to both game chat and lobby chat
