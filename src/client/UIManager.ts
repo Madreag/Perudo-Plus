@@ -152,32 +152,6 @@ export class UIManager {
               <label for="session-name">Session Name:</label>
               <input type="text" id="session-name" placeholder="My Game Room" maxlength="30">
             </div>
-            <div class="form-group">
-              <label for="session-mode">Game Mode:</label>
-              <select id="session-mode">
-                <option value="tactical">Tactical (Recommended)</option>
-                <option value="classic">Classic</option>
-                <option value="chaos">Chaos</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="session-max-players">Max Players:</label>
-              <select id="session-max-players">
-                <option value="2">2 Players</option>
-                <option value="3">3 Players</option>
-                <option value="4">4 Players</option>
-                <option value="5">5 Players</option>
-                <option value="6" selected>6 Players</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="session-stage">Stage:</label>
-              <select id="session-stage">
-                <option value="casino" selected>🎰 Casino</option>
-                <option value="dungeon">🏰 Medieval Dungeon</option>
-                <option value="beach">🏖️ Beach</option>
-              </select>
-            </div>
             <div class="modal-buttons">
               <button id="cancel-create-session" class="btn secondary">Cancel</button>
               <button id="confirm-create-session" class="btn primary">Create</button>
@@ -644,9 +618,6 @@ export class UIManager {
     // Create Session Modal - Confirm
     document.getElementById('confirm-create-session')?.addEventListener('click', () => {
       const sessionName = (document.getElementById('session-name') as HTMLInputElement).value.trim();
-      const mode = (document.getElementById('session-mode') as HTMLSelectElement).value as GameMode;
-      const maxPlayers = parseInt((document.getElementById('session-max-players') as HTMLSelectElement).value, 10);
-      const stage = (document.getElementById('session-stage') as HTMLSelectElement).value as StageType;
       const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Host';
 
       if (!sessionName) {
@@ -654,8 +625,10 @@ export class UIManager {
         return;
       }
 
+      // Use default values: maxPlayers=6, mode=tactical, stage=casino
+      // These can be changed by the host in the session lobby settings
       this.hideModal('create-session-modal');
-      this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers, stage });
+      this.onCreateSession?.(sessionName, playerName, { mode: 'tactical' as GameMode, maxPlayers: 6, stage: 'casino' as StageType });
     });
 
     // Leave Session (back to browser)
