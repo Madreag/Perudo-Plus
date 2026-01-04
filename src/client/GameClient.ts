@@ -16,6 +16,7 @@ export class GameClient {
   private gameState: PublicGameState | null = null;
   private playerIndexMap: Map<string, number> = new Map();
   private previousPhase: string | null = null;
+  private cameraPositionedForPlayer: boolean = false;
 
   constructor(container: HTMLElement) {
     // Create UI container
@@ -57,6 +58,8 @@ export class GameClient {
         this.ui.showConnectionError('Disconnected from server');
         // Reset previous phase so reconnection triggers proper screen transition
         this.previousPhase = null;
+        // Reset camera position flag for next session
+        this.cameraPositionedForPlayer = false;
         // Go back to lobby music when disconnected
         this.music.toLobby();
       }
@@ -94,6 +97,8 @@ export class GameClient {
       console.log('Left session');
       this.ui.showScreen('browser-screen');
       this.previousPhase = null;
+      // Reset camera position flag for next session
+      this.cameraPositionedForPlayer = false;
       this.music.toLobby();
       // Request updated session list
       this.network.listSessions();
@@ -166,6 +171,12 @@ export class GameClient {
       const myPlayerId = this.network.getPlayerId();
       const myIndex = this.playerIndexMap.get(myPlayerId);
       if (myIndex !== undefined) {
+        // Set camera to player's perspective on first private info
+        if (!this.cameraPositionedForPlayer) {
+          this.renderer.setCameraToPlayerView(myIndex);
+          this.cameraPositionedForPlayer = true;
+        }
+        
         this.renderer.animateDiceRoll(info.dice, myIndex);
       }
       

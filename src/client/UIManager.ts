@@ -240,17 +240,7 @@ export class UIManager {
           <!-- Players Panel -->
           <div id="players-panel" class="players-panel"></div>
 
-          <!-- Card Deck (center of table) -->
-          <div id="card-deck-container" class="card-deck-container">
-            <div id="card-deck" class="card-deck-3d">
-              <div class="deck-card"></div>
-              <div class="deck-card"></div>
-              <div class="deck-card"></div>
-              <div class="deck-card"></div>
-              <div class="deck-card"></div>
-            </div>
-            <div class="deck-label">Draw Deck</div>
-          </div>
+
 
           <!-- Private Info Panel -->
           <div id="private-panel" class="private-panel">
@@ -728,8 +718,40 @@ export class UIManager {
         pointer-events: none;
       }
 
-      #game-ui * {
+      /* Enable pointer events only on interactive elements, not on container divs */
+      #game-ui .panel,
+      #game-ui .volume-control,
+      #game-ui .top-bar,
+      #game-ui .bottom-panel,
+      #game-ui .side-panel,
+      #game-ui .chat-panel,
+      #game-ui .modal,
+      #game-ui button,
+      #game-ui input,
+      #game-ui select,
+      #game-ui .btn,
+      #game-ui .help-icon,
+      #game-ui .session-item,
+      #game-ui .player-slot,
+      #game-ui .card,
+      #game-ui .die-option,
+      #game-ui .bid-controls,
+      #game-ui .action-buttons,
+      #game-ui .chat-input-container,
+      #game-ui .player-info-panel,
+      #game-ui .browser-container,
+      #game-ui .lobby-container,
+      #game-ui .dice-container,
+      #game-ui .cards-container,
+      #game-ui .result-content,
+      #game-ui .dice-display,
+      #game-ui .player-card {
         pointer-events: auto;
+      }
+      
+      /* Screens themselves should not capture events */
+      #game-ui .screen {
+        pointer-events: none;
       }
 
       /* Volume Control - hidden on game screen since top bar has its own */
@@ -1558,75 +1580,7 @@ export class UIManager {
         color: #aaa;
       }
 
-      /* 3D Card Deck */
-      .card-deck-container {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        z-index: 10;
-        perspective: 800px;
-      }
 
-      .card-deck-3d {
-        position: relative;
-        width: 70px;
-        height: 100px;
-        transform-style: preserve-3d;
-        transform: rotateX(25deg) rotateY(-10deg);
-      }
-
-      .deck-card {
-        position: absolute;
-        width: 70px;
-        height: 100px;
-        background: linear-gradient(135deg, #2a4a6a 0%, #1a3050 50%, #2a4a6a 100%);
-        border: 2px solid #4a7a9a;
-        border-radius: 8px;
-        box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
-        backface-visibility: hidden;
-      }
-
-      .deck-card::before {
-        content: '🎴';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 28px;
-        opacity: 0.6;
-      }
-
-      .deck-card::after {
-        content: '';
-        position: absolute;
-        inset: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 5px;
-        background: repeating-linear-gradient(
-          45deg,
-          transparent,
-          transparent 3px,
-          rgba(255, 255, 255, 0.03) 3px,
-          rgba(255, 255, 255, 0.03) 6px
-        );
-      }
-
-      .deck-card:nth-child(1) { transform: translateZ(0px); }
-      .deck-card:nth-child(2) { transform: translateZ(3px); }
-      .deck-card:nth-child(3) { transform: translateZ(6px); }
-      .deck-card:nth-child(4) { transform: translateZ(9px); }
-      .deck-card:nth-child(5) { transform: translateZ(12px); }
-
-      .deck-label {
-        margin-top: 20px;
-        color: #aaa;
-        font-size: 0.85em;
-        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-      }
 
       /* Card draw animation */
       .card-drawing {
@@ -3305,12 +3259,14 @@ export class UIManager {
   }
 
   public playCardDrawAnimation(targetPlayerId?: string): void {
-    const deck = document.getElementById('card-deck');
+    // Since the 3D deck is at the center of the game canvas, 
+    // we'll start the animation from the center of the viewport
+    const gameContainer = document.getElementById('game-container');
+    if (!gameContainer) return;
     
-    if (!deck) return;
-    
-    // Get deck position
-    const deckRect = deck.getBoundingClientRect();
+    const containerRect = gameContainer.getBoundingClientRect();
+    const startX = containerRect.left + containerRect.width / 2;
+    const startY = containerRect.top + containerRect.height / 2;
     
     // Find target element - either the player's card in the players panel or the private panel
     let targetRect: DOMRect;
@@ -3336,16 +3292,16 @@ export class UIManager {
     // Create animated card element
     const animCard = document.createElement('div');
     animCard.className = 'card-drawing';
-    animCard.style.left = `${deckRect.left + deckRect.width / 2 - 35}px`;
-    animCard.style.top = `${deckRect.top + deckRect.height / 2 - 50}px`;
+    animCard.style.left = `${startX - 35}px`;
+    animCard.style.top = `${startY - 50}px`;
     
     // Calculate target position (center of target element)
     const targetX = targetRect.left + targetRect.width / 2;
     const targetY = targetRect.top + targetRect.height / 2;
     
     // Set CSS custom properties for animation target
-    animCard.style.setProperty('--target-x', `${targetX - deckRect.left - deckRect.width / 2 + 35}px`);
-    animCard.style.setProperty('--target-y', `${targetY - deckRect.top - deckRect.height / 2 + 50}px`);
+    animCard.style.setProperty('--target-x', `${targetX - startX + 35}px`);
+    animCard.style.setProperty('--target-y', `${targetY - startY + 50}px`);
     
     document.body.appendChild(animCard);
     

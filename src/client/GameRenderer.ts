@@ -14,6 +14,18 @@ const DICE_COLORS: Record<DieType, number> = {
   'd10': 0xdda0dd  // Plum
 };
 
+// Bounding radius for each die type (used for collision detection)
+// These values represent the approximate radius of each die shape plus a small buffer
+const DICE_BOUNDING_RADIUS: Record<DieType, number> = {
+  'd3': 0.55,   // CylinderGeometry radius 0.5 + buffer
+  'd4': 0.65,   // TetrahedronGeometry radius 0.6 + buffer
+  'd6': 0.60,   // BoxGeometry 0.8 -> half-diagonal ~0.57 + buffer
+  'd8': 0.65,   // OctahedronGeometry radius 0.6 + buffer
+  'd10': 0.55   // DodecahedronGeometry radius 0.5 + buffer
+};
+
+
+
 export class GameRenderer {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -21,9 +33,21 @@ export class GameRenderer {
   private container: HTMLElement;
   private diceObjects: Map<string, THREE.Mesh> = new Map();
   private tableGroup: THREE.Group;
+  private cardDeckGroup!: THREE.Group;
   private playerPositions: THREE.Vector3[] = [];
   private animationFrameId: number = 0;
   private isAnimating: boolean = false;
+
+  // Camera orbit controls
+  private cameraTheta: number = -Math.PI / 2;  // Horizontal angle (start behind player 0, looking at center)
+  private cameraPhi: number = Math.PI / 3;    // Vertical angle (60 degrees from top)
+  private cameraRadius: number = 18;          // Distance from center
+  private cameraTarget: THREE.Vector3 = new THREE.Vector3(0, 0, 0);  // Look at center of table
+  
+  // Mouse control state
+  private isDragging: boolean = false;
+  private previousMouseX: number = 0;
+  private previousMouseY: number = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -35,8 +59,9 @@ export class GameRenderer {
     // Camera setup
     const aspect = container.clientWidth / container.clientHeight;
     this.camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
-    this.camera.position.set(0, 15, 12);
-    this.camera.lookAt(0, 0, 0);
+    
+    // Initialize camera position from orbit parameters
+    this.updateCameraPosition();
 
     // Renderer setup
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -52,10 +77,14 @@ export class GameRenderer {
     // Setup scene
     this.setupLighting();
     this.createTable();
+    this.createCardDeck();
     this.setupPlayerPositions();
 
     // Handle window resize
     window.addEventListener('resize', () => this.onWindowResize());
+
+    // Setup camera controls
+    this.setupCameraControls();
 
     // Start render loop
     this.animate();
@@ -131,6 +160,201 @@ export class GameRenderer {
     this.tableGroup.add(felt);
   }
 
+  private createCardDeck(): void {
+    // Create a group to hold the card deck
+    this.cardDeckGroup = new THREE.Group();
+    
+    // Card dimensions (roughly poker card proportions)
+    const cardWidth = 1.0;
+    const cardHeight = 1.4;
+    const cardThickness = 0.015;
+    const numCards = 20; // Visual representation of deck thickness
+    
+    // Colors inspired by the 2D design
+    const cardBackColor = 0x1a3050;  // Dark blue
+    const cardEdgeColor = 0x4a7a9a;  // Lighter blue for edges
+    const accentColor = 0x2a4a6a;    // Medium blue
+    
+    // Create the main deck body (single box for performance)
+    const deckHeight = numCards * cardThickness;
+    const deckBodyGeometry = new THREE.BoxGeometry(cardWidth, deckHeight, cardHeight);
+    const deckBodyMaterial = new THREE.MeshStandardMaterial({
+      color: cardBackColor,
+      roughness: 0.4,
+      metalness: 0.1
+    });
+    const deckBody = new THREE.Mesh(deckBodyGeometry, deckBodyMaterial);
+    deckBody.position.y = deckHeight / 2;
+    deckBody.castShadow = true;
+    deckBody.receiveShadow = true;
+    this.cardDeckGroup.add(deckBody);
+    
+    // Add edge trim around the deck (like a border)
+    const edgeThickness = 0.03;
+    const edgeMaterial = new THREE.MeshStandardMaterial({
+      color: cardEdgeColor,
+      roughness: 0.3,
+      metalness: 0.3,
+      emissive: cardEdgeColor,
+      emissiveIntensity: 0.1
+    });
+    
+    // Front edge
+    const frontEdgeGeometry = new THREE.BoxGeometry(cardWidth + 0.02, deckHeight, edgeThickness);
+    const frontEdge = new THREE.Mesh(frontEdgeGeometry, edgeMaterial);
+    frontEdge.position.set(0, deckHeight / 2, cardHeight / 2 + edgeThickness / 2);
+    this.cardDeckGroup.add(frontEdge);
+    
+    // Back edge
+    const backEdge = new THREE.Mesh(frontEdgeGeometry, edgeMaterial);
+    backEdge.position.set(0, deckHeight / 2, -cardHeight / 2 - edgeThickness / 2);
+    this.cardDeckGroup.add(backEdge);
+    
+    // Left edge
+    const sideEdgeGeometry = new THREE.BoxGeometry(edgeThickness, deckHeight, cardHeight + 0.02);
+    const leftEdge = new THREE.Mesh(sideEdgeGeometry, edgeMaterial);
+    leftEdge.position.set(-cardWidth / 2 - edgeThickness / 2, deckHeight / 2, 0);
+    this.cardDeckGroup.add(leftEdge);
+    
+    // Right edge
+    const rightEdge = new THREE.Mesh(sideEdgeGeometry, edgeMaterial);
+    rightEdge.position.set(cardWidth / 2 + edgeThickness / 2, deckHeight / 2, 0);
+    this.cardDeckGroup.add(rightEdge);
+    
+    // Add a top card with decorative design
+    const topCardGeometry = new THREE.BoxGeometry(cardWidth, cardThickness * 2, cardHeight);
+    const topCardMaterial = new THREE.MeshStandardMaterial({
+      color: accentColor,
+      roughness: 0.2,
+      metalness: 0.2
+    });
+    const topCard = new THREE.Mesh(topCardGeometry, topCardMaterial);
+    topCard.position.y = deckHeight + cardThickness;
+    topCard.castShadow = true;
+    this.cardDeckGroup.add(topCard);
+    
+    // Inner border on top card
+    const innerBorderShape = new THREE.Shape();
+    const borderInset = 0.08;
+    const borderWidth = 0.03;
+    // Outer rectangle
+    innerBorderShape.moveTo(-cardWidth/2 + borderInset, -cardHeight/2 + borderInset);
+    innerBorderShape.lineTo(cardWidth/2 - borderInset, -cardHeight/2 + borderInset);
+    innerBorderShape.lineTo(cardWidth/2 - borderInset, cardHeight/2 - borderInset);
+    innerBorderShape.lineTo(-cardWidth/2 + borderInset, cardHeight/2 - borderInset);
+    innerBorderShape.closePath();
+    // Inner rectangle (hole)
+    const holePath = new THREE.Path();
+    holePath.moveTo(-cardWidth/2 + borderInset + borderWidth, -cardHeight/2 + borderInset + borderWidth);
+    holePath.lineTo(cardWidth/2 - borderInset - borderWidth, -cardHeight/2 + borderInset + borderWidth);
+    holePath.lineTo(cardWidth/2 - borderInset - borderWidth, cardHeight/2 - borderInset - borderWidth);
+    holePath.lineTo(-cardWidth/2 + borderInset + borderWidth, cardHeight/2 - borderInset - borderWidth);
+    holePath.closePath();
+    innerBorderShape.holes.push(holePath);
+    
+    const innerBorderGeometry = new THREE.ShapeGeometry(innerBorderShape);
+    const innerBorderMaterial = new THREE.MeshStandardMaterial({
+      color: 0x6a9aba,
+      roughness: 0.3,
+      metalness: 0.4,
+      side: THREE.DoubleSide
+    });
+    const innerBorder = new THREE.Mesh(innerBorderGeometry, innerBorderMaterial);
+    innerBorder.rotation.x = -Math.PI / 2;
+    innerBorder.position.y = deckHeight + cardThickness * 2 + 0.001;
+    this.cardDeckGroup.add(innerBorder);
+    
+    // Add a decorative diamond pattern in the center
+    const diamondShape = new THREE.Shape();
+    diamondShape.moveTo(0, 0.35);
+    diamondShape.lineTo(0.2, 0);
+    diamondShape.lineTo(0, -0.35);
+    diamondShape.lineTo(-0.2, 0);
+    diamondShape.closePath();
+    
+    const diamondGeometry = new THREE.ShapeGeometry(diamondShape);
+    const diamondMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      roughness: 0.2,
+      metalness: 0.6,
+      emissive: 0xffd700,
+      emissiveIntensity: 0.15,
+      side: THREE.DoubleSide
+    });
+    const diamond = new THREE.Mesh(diamondGeometry, diamondMaterial);
+    diamond.rotation.x = -Math.PI / 2;
+    diamond.position.y = deckHeight + cardThickness * 2 + 0.002;
+    this.cardDeckGroup.add(diamond);
+    
+    // Add smaller diamonds in corners
+    const smallDiamondShape = new THREE.Shape();
+    smallDiamondShape.moveTo(0, 0.1);
+    smallDiamondShape.lineTo(0.06, 0);
+    smallDiamondShape.lineTo(0, -0.1);
+    smallDiamondShape.lineTo(-0.06, 0);
+    smallDiamondShape.closePath();
+    
+    const smallDiamondGeometry = new THREE.ShapeGeometry(smallDiamondShape);
+    const smallDiamondMaterial = new THREE.MeshStandardMaterial({
+      color: 0xc0c0c0,
+      roughness: 0.3,
+      metalness: 0.5,
+      side: THREE.DoubleSide
+    });
+    
+    const cornerPositions = [
+      { x: -cardWidth/2 + 0.18, z: -cardHeight/2 + 0.22 },
+      { x: cardWidth/2 - 0.18, z: -cardHeight/2 + 0.22 },
+      { x: -cardWidth/2 + 0.18, z: cardHeight/2 - 0.22 },
+      { x: cardWidth/2 - 0.18, z: cardHeight/2 - 0.22 }
+    ];
+    
+    cornerPositions.forEach(pos => {
+      const smallDiamond = new THREE.Mesh(smallDiamondGeometry, smallDiamondMaterial);
+      smallDiamond.rotation.x = -Math.PI / 2;
+      smallDiamond.position.set(pos.x, deckHeight + cardThickness * 2 + 0.002, pos.z);
+      this.cardDeckGroup.add(smallDiamond);
+    });
+    
+    // Add a subtle glow underneath the deck
+    const glowGeometry = new THREE.CircleGeometry(0.9, 32);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0x4a7a9a,
+      transparent: true,
+      opacity: 0.15
+    });
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = 0.005;
+    this.cardDeckGroup.add(glow);
+    
+    // Position the deck at the center of the table
+    this.cardDeckGroup.position.set(0, 0.01, 0); // Slightly above table surface
+    
+    // Add the deck to the table group
+    this.tableGroup.add(this.cardDeckGroup);
+  }
+
+
+  /**
+   * Update the visual representation of the card deck based on remaining cards
+   * @param remainingCards Number of cards remaining in the deck
+   * @param totalCards Total number of cards in a full deck (default 28)
+   */
+  public updateDeckCount(remainingCards: number, totalCards: number = 28): void {
+    if (!this.cardDeckGroup) return;
+    
+    // Calculate the scale factor based on remaining cards
+    const minScale = 0.2; // Minimum scale when deck is nearly empty
+    const scaleFactor = Math.max(minScale, remainingCards / totalCards);
+    
+    // Scale the deck height (y-axis) to show fewer cards
+    this.cardDeckGroup.scale.y = scaleFactor;
+    
+    // Adjust position to keep deck on table surface
+    this.cardDeckGroup.position.y = 0.01;
+  }
+
   private setupPlayerPositions(): void {
     // Positions around the table for up to 5 players
     const radius = 7;
@@ -142,6 +366,105 @@ export class GameRenderer {
         Math.sin(angle) * radius
       ));
     }
+  }
+
+  // Update camera position based on spherical coordinates
+  private updateCameraPosition(): void {
+    // Convert spherical coordinates to Cartesian
+    // phi is the angle from the vertical (0 = top, PI = bottom)
+    // theta is the horizontal angle (matching player position formula)
+    // Player positions use: x = cos(angle) * radius, z = sin(angle) * radius
+    // So camera should use the same convention
+    const horizontalRadius = this.cameraRadius * Math.sin(this.cameraPhi);
+    const x = Math.cos(this.cameraTheta) * horizontalRadius;
+    const y = this.cameraRadius * Math.cos(this.cameraPhi);
+    const z = Math.sin(this.cameraTheta) * horizontalRadius;
+    
+    this.camera.position.set(
+      this.cameraTarget.x + x,
+      this.cameraTarget.y + y,
+      this.cameraTarget.z + z
+    );
+    this.camera.lookAt(this.cameraTarget);
+  }
+
+  // Setup mouse and scroll controls for camera
+  private setupCameraControls(): void {
+    const canvas = this.renderer.domElement;
+    
+    // Mouse down - start dragging
+    canvas.addEventListener('mousedown', (event: MouseEvent) => {
+      this.isDragging = true;
+      this.previousMouseX = event.clientX;
+      this.previousMouseY = event.clientY;
+    });
+    
+    // Mouse move - rotate camera if dragging
+    canvas.addEventListener('mousemove', (event: MouseEvent) => {
+      if (!this.isDragging) return;
+      
+      const deltaX = event.clientX - this.previousMouseX;
+      const deltaY = event.clientY - this.previousMouseY;
+      
+      // Adjust rotation speed
+      const rotationSpeed = 0.005;
+      
+      // Update theta (horizontal rotation)
+      this.cameraTheta += deltaX * rotationSpeed;
+      
+      // Update phi (vertical rotation) with limits
+      this.cameraPhi -= deltaY * rotationSpeed;
+      // Clamp phi to prevent flipping (between 10 and 80 degrees from vertical)
+      this.cameraPhi = Math.max(0.1, Math.min(Math.PI * 0.45, this.cameraPhi));
+      
+      this.previousMouseX = event.clientX;
+      this.previousMouseY = event.clientY;
+      
+      this.updateCameraPosition();
+    });
+    
+    // Mouse up - stop dragging
+    canvas.addEventListener('mouseup', () => {
+      this.isDragging = false;
+    });
+    
+    // Mouse leave - stop dragging
+    canvas.addEventListener('mouseleave', () => {
+      this.isDragging = false;
+    });
+    
+    // Scroll wheel - zoom in/out
+    canvas.addEventListener('wheel', (event: WheelEvent) => {
+      event.preventDefault();
+      
+      // Adjust zoom speed
+      const zoomSpeed = 0.001;
+      
+      // Update radius (zoom)
+      this.cameraRadius += event.deltaY * zoomSpeed * this.cameraRadius;
+      
+      // Clamp radius to reasonable bounds
+      this.cameraRadius = Math.max(8, Math.min(40, this.cameraRadius));
+      
+      this.updateCameraPosition();
+    }, { passive: false });
+  }
+
+  // Set camera to view from a specific player's perspective
+  public setCameraToPlayerView(playerIndex: number): void {
+    // Player positions are arranged around the table
+    // Calculate the angle for this player (same formula as setupPlayerPositions)
+    const angle = (playerIndex / 5) * Math.PI * 2 - Math.PI / 2;
+    
+    // Set theta to be behind the player (same direction as player, looking toward center)
+    // The camera looks at the center, so we position it on the same side as the player
+    this.cameraTheta = angle;
+    
+    // Reset phi and radius to defaults
+    this.cameraPhi = Math.PI / 3;
+    this.cameraRadius = 18;
+    
+    this.updateCameraPosition();
   }
 
   private createDieGeometry(type: DieType): THREE.BufferGeometry {
@@ -339,6 +662,105 @@ export class GameRenderer {
     });
   }
 
+  /**
+   * Generate random clustered positions for dice, simulating a natural bunch like in Perudo.
+   * Uses collision detection based on actual die sizes to prevent overlap.
+   * @param diceTypes Array of die types to position (used for collision detection based on die sizes)
+   * @param centerX Center X position
+   * @param centerZ Center Z position
+   * @param baseY Base Y position (height)
+   * @returns Array of {x, y, z, rotationY} for each die
+   */
+  private generateRandomDiceCluster(
+    diceTypes: DieType[],
+    centerX: number,
+    centerZ: number,
+    baseY: number
+  ): Array<{ x: number; y: number; z: number; rotationY: number }> {
+    const positions: Array<{ x: number; y: number; z: number; rotationY: number; boundingRadius: number }> = [];
+    const count = diceTypes.length;
+    
+    // Calculate the total area needed based on dice sizes
+    // Sum of all dice diameters gives us an estimate of the space needed
+    const totalDiceArea = diceTypes.reduce((sum, type) => {
+      const radius = DICE_BOUNDING_RADIUS[type];
+      return sum + Math.PI * radius * radius;
+    }, 0);
+    
+    // Calculate spread radius to ensure enough space for all dice
+    // Add extra padding for natural spacing
+    const avgRadius = diceTypes.reduce((sum, type) => sum + DICE_BOUNDING_RADIUS[type], 0) / count;
+    const baseSpread = Math.sqrt(totalDiceArea / Math.PI) * 1.2; // 20% extra space
+    const minSpread = avgRadius * 2; // At minimum, spread should be twice the average radius
+    const maxSpread = Math.max(baseSpread, minSpread, 0.8 + 0.2 * count);
+    
+    for (let i = 0; i < count; i++) {
+      let x: number = centerX;
+      let z: number = centerZ;
+      let attempts = 0;
+      const maxAttempts = 100; // Increased attempts for better placement
+      
+      // Get the bounding radius for the current die type
+      const currentDieRadius = DICE_BOUNDING_RADIUS[diceTypes[i]];
+      
+      // Try to find a position that doesn't overlap with existing dice
+      let placed = false;
+      do {
+        // Generate random position in a roughly circular area
+        // Use a combination of angle and radius for natural distribution
+        const angle = Math.random() * Math.PI * 2;
+        // Use square root for more uniform distribution in circle
+        const radius = Math.sqrt(Math.random()) * maxSpread;
+        
+        x = centerX + Math.cos(angle) * radius + (Math.random() - 0.5) * 0.2;
+        z = centerZ + Math.sin(angle) * radius + (Math.random() - 0.5) * 0.2;
+        
+        attempts++;
+        
+        // Check distance from existing positions using actual die bounding radii
+        let tooClose = false;
+        for (const pos of positions) {
+          const dist = Math.sqrt((x - pos.x) ** 2 + (z - pos.z) ** 2);
+          // Minimum distance is the sum of both dice bounding radii
+          const minDistance = currentDieRadius + pos.boundingRadius;
+          if (dist < minDistance) {
+            tooClose = true;
+            break;
+          }
+        }
+        
+        if (!tooClose) {
+          placed = true;
+          break;
+        }
+      } while (attempts < maxAttempts);
+      
+      // If we couldn't find a non-overlapping position, use a spiral placement as fallback
+      if (!placed) {
+        // Place in a spiral pattern to guarantee no overlap
+        const spiralAngle = (i / count) * Math.PI * 2;
+        const spiralRadius = currentDieRadius + (i > 0 ? positions.reduce((max, pos) => 
+          Math.max(max, Math.sqrt((pos.x - centerX) ** 2 + (pos.z - centerZ) ** 2) + pos.boundingRadius), 0) : 0);
+        
+        x = centerX + Math.cos(spiralAngle) * (spiralRadius + currentDieRadius);
+        z = centerZ + Math.sin(spiralAngle) * (spiralRadius + currentDieRadius);
+      }
+      
+      positions.push({
+        x,
+        y: baseY,
+        z,
+        rotationY: Math.random() * Math.PI * 2, // Random rotation for natural look
+        boundingRadius: currentDieRadius
+      });
+    }
+    
+    // Return positions without the boundingRadius (not needed by callers)
+    return positions.map(({ x, y, z, rotationY }) => ({ x, y, z, rotationY }));
+  }
+
+
+
   public renderPlayerDice(dice: Die[], playerIndex: number): void {
     const position = this.playerPositions[playerIndex];
     if (!position) return;
@@ -346,22 +768,26 @@ export class GameRenderer {
     // Clear existing dice for this player
     this.clearPlayerDice(playerIndex);
 
-    // Arrange dice in a small cluster
+    // Generate random clustered positions for a natural bunch look (like Perudo)
+    const clusterPositions = this.generateRandomDiceCluster(
+      dice.map(d => d.type),
+      position.x,
+      position.z,
+      position.y
+    );
+
+    // Arrange dice in a natural random cluster
     dice.forEach((die, i) => {
       const mesh = this.createDieMesh(die);
+      const clusterPos = clusterPositions[i];
       
-      // Position dice in a row
-      const offsetX = (i - (dice.length - 1) / 2) * 1.2;
-      mesh.position.set(
-        position.x + offsetX * 1.0,
-        position.y,
-        position.z
-      );
+      // Position dice using the random cluster positions
+      mesh.position.set(clusterPos.x, clusterPos.y, clusterPos.z);
       
       // Random rotation for visual interest
       mesh.rotation.set(
         Math.random() * 0.2,
-        Math.random() * Math.PI * 2,
+        clusterPos.rotationY,
         Math.random() * 0.2
       );
 
@@ -392,31 +818,37 @@ export class GameRenderer {
 
       this.clearPlayerDice(playerIndex);
 
+      // Generate random clustered target positions for a natural bunch look (like Perudo)
+      const clusterPositions = this.generateRandomDiceCluster(
+        dice.map(d => d.type),
+        position.x,
+        position.z,
+        position.y
+      );
+
       const meshes: THREE.Mesh[] = [];
       const startPositions: THREE.Vector3[] = [];
       const targetPositions: THREE.Vector3[] = [];
       const rotationSpeeds: THREE.Vector3[] = [];
+      const targetRotations: THREE.Vector3[] = [];
 
       dice.forEach((die, i) => {
         const mesh = this.createDieMesh(die);
+        const clusterPos = clusterPositions[i];
         
-        // Calculate offset for this die
-        const offsetX = (i - (dice.length - 1) / 2) * 1.2;
-        
-        // Start position (above table, with slight random variation)
+        // Start position (above table, scattered around the target area)
         const startPos = new THREE.Vector3(
-          position.x + offsetX * 1.0 + (Math.random() - 0.5) * 0.3,
+          clusterPos.x + (Math.random() - 0.5) * 1.5,
           5 + Math.random() * 2,
-          position.z + (Math.random() - 0.5) * 0.5
+          clusterPos.z + (Math.random() - 0.5) * 1.5
         );
         
-        // Target position (spread out to avoid overlap)
+        // Target position from the random cluster
         const targetPos = new THREE.Vector3(
-          position.x + offsetX * 1.0,
-          position.y,
-          position.z
+          clusterPos.x,
+          clusterPos.y,
+          clusterPos.z
         );
-
 
         mesh.position.copy(startPos);
         startPositions.push(startPos);
@@ -425,6 +857,12 @@ export class GameRenderer {
           (Math.random() - 0.5) * 10,
           (Math.random() - 0.5) * 10,
           (Math.random() - 0.5) * 10
+        ));
+        // Store target rotation for natural final orientation
+        targetRotations.push(new THREE.Vector3(
+          Math.random() * 0.2,
+          clusterPos.rotationY,
+          Math.random() * 0.2
         ));
 
         mesh.userData = { dieId: die.id, playerIndex };
@@ -465,6 +903,11 @@ export class GameRenderer {
             mesh.rotation.x += rotationSpeeds[i].x * 0.02 * (1 - progress);
             mesh.rotation.y += rotationSpeeds[i].y * 0.02 * (1 - progress);
             mesh.rotation.z += rotationSpeeds[i].z * 0.02 * (1 - progress);
+          } else {
+            // Set final rotation for natural look
+            mesh.rotation.x = targetRotations[i].x;
+            mesh.rotation.y = targetRotations[i].y;
+            mesh.rotation.z = targetRotations[i].z;
           }
         });
 
@@ -553,29 +996,36 @@ export class GameRenderer {
 
       this.clearPlayerDice(playerIndex);
 
+      // Generate random clustered target positions for a natural bunch look (like Perudo)
+      const clusterPositions = this.generateRandomDiceCluster(
+        Array(diceCount).fill('d6' as DieType),
+        position.x,
+        position.z,
+        position.y
+      );
+
       const meshes: THREE.Mesh[] = [];
       const startPositions: THREE.Vector3[] = [];
       const targetPositions: THREE.Vector3[] = [];
       const rotationSpeeds: THREE.Vector3[] = [];
+      const targetRotations: THREE.Vector3[] = [];
 
       for (let i = 0; i < diceCount; i++) {
         const mesh = this.createShadowDieMesh();
+        const clusterPos = clusterPositions[i];
         
-        // Calculate offset for this die
-        const offsetX = (i - (diceCount - 1) / 2) * 1.2;
-        
-        // Start position (above table, with slight random variation)
+        // Start position (above table, scattered around the target area)
         const startPos = new THREE.Vector3(
-          position.x + offsetX * 1.0 + (Math.random() - 0.5) * 0.3,
+          clusterPos.x + (Math.random() - 0.5) * 1.5,
           5 + Math.random() * 2,
-          position.z + (Math.random() - 0.5) * 0.5
+          clusterPos.z + (Math.random() - 0.5) * 1.5
         );
         
-        // Target position (spread out to avoid overlap)
+        // Target position from the random cluster
         const targetPos = new THREE.Vector3(
-          position.x + offsetX * 1.0,
-          position.y,
-          position.z
+          clusterPos.x,
+          clusterPos.y,
+          clusterPos.z
         );
 
         mesh.position.copy(startPos);
@@ -585,6 +1035,12 @@ export class GameRenderer {
           (Math.random() - 0.5) * 10,
           (Math.random() - 0.5) * 10,
           (Math.random() - 0.5) * 10
+        ));
+        // Store target rotation for natural final orientation
+        targetRotations.push(new THREE.Vector3(
+          Math.random() * 0.2,
+          clusterPos.rotationY,
+          Math.random() * 0.2
         ));
 
         // Use a unique key for shadow dice
@@ -627,6 +1083,11 @@ export class GameRenderer {
             mesh.rotation.x += rotationSpeeds[i].x * 0.02 * (1 - progress);
             mesh.rotation.y += rotationSpeeds[i].y * 0.02 * (1 - progress);
             mesh.rotation.z += rotationSpeeds[i].z * 0.02 * (1 - progress);
+          } else {
+            // Set final rotation for natural look
+            mesh.rotation.x = targetRotations[i].x;
+            mesh.rotation.y = targetRotations[i].y;
+            mesh.rotation.z = targetRotations[i].z;
           }
         });
 
@@ -661,10 +1122,7 @@ export class GameRenderer {
   private animate(): void {
     this.animationFrameId = requestAnimationFrame(() => this.animate());
     
-    // Subtle camera movement
-    const time = Date.now() * 0.0001;
-    this.camera.position.x = Math.sin(time) * 0.5;
-    
+    // Render the scene (camera position is controlled by mouse/scroll)
     this.renderer.render(this.scene, this.camera);
   }
 
