@@ -39,9 +39,19 @@ Thumbs.db
 # Optional eslint cache
 .eslintcache
 
-# Coverage directory
+# Coverage directory (Jest)
 coverage/
+.nyc_output/
 
 # Temporary files
 tmp/
 temp/
+
+# Test-related temporary files
+*.test.log
+test-results/
+jest-results/
+.jest/
+
+# Do NOT ignore test source files
+# Test files in src/**/__tests__/*.test.ts are tracked
