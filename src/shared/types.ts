@@ -60,6 +60,7 @@ export interface Player {
   isConnected: boolean;
   isHost: boolean;
   isEliminated: boolean;
+  isAI: boolean;
   activeEffects: ActiveEffects;
 }
 
@@ -74,6 +75,7 @@ export interface PublicPlayerInfo {
   isConnected: boolean;
   isHost: boolean;
   isEliminated: boolean;
+  isAI: boolean;
   activeEffects: ActiveEffects;
 }
 
@@ -100,6 +102,10 @@ export type GameMode = 'classic' | 'tactical' | 'chaos';
 // Stage/Scene Type
 export type StageType = 'casino' | 'dungeon' | 'beach';
 
+// AI Difficulty Level
+export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'chuck_norris';
+
+
 
 // Game Settings
 export interface GameSettings {
@@ -108,6 +114,8 @@ export interface GameSettings {
   maxPlayers: number;
   enableCalza: boolean;
   enableLastStand: boolean;
+  aiDifficulty: AIDifficulty;
+  aiPlayerCount: number;
 }
 
 // Game State
@@ -245,6 +253,8 @@ export interface UpdateSessionSettingsPayload {
   mode?: GameMode;
   stage?: StageType;
   maxPlayers?: number;
+  aiDifficulty?: AIDifficulty;
+  aiPlayerCount?: number;
 }
 
 // Extended client message types to include session management
@@ -270,7 +280,9 @@ export type ClientMessageType =
   | 'pause_game'
   | 'resume_game'
   | 'kick_player'
-  | 'select_slot';
+  | 'select_slot'
+  | 'add_ai_player'
+  | 'remove_ai_player';
 
 // Extended server message types
 export type ServerMessageType = 

@@ -43,7 +43,9 @@ export function createDefaultSettings(mode: GameMode = 'tactical', stage: StageT
     stage,
     maxPlayers: 5,
     enableCalza: false,
-    enableLastStand: false
+    enableLastStand: false,
+    aiDifficulty: 'normal',
+    aiPlayerCount: 0
   };
 }
 
@@ -73,6 +75,7 @@ export function createPlayer(name: string, isHost: boolean = false, ip: string =
     isConnected: true,
     isHost,
     isEliminated: false,
+    isAI: false,
     activeEffects: createDefaultActiveEffects()
   };
 }
@@ -529,6 +532,7 @@ export function toPublicGameState(state: GameState): PublicGameState {
     isConnected: player.isConnected,
     isHost: player.isHost,
     isEliminated: player.isEliminated,
+    isAI: player.isAI,
     activeEffects: player.activeEffects
   }));
 
@@ -724,6 +728,7 @@ export function resetGame(state: GameState): GameState {
     dice: [],
     cards: [],
     isEliminated: false,
+    isAI: player.isAI,
     activeEffects: createDefaultActiveEffects()
   }));
 

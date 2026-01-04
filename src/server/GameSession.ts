@@ -44,6 +44,9 @@ import {
   resumeGame
 } from '../shared/gameState';
 import { createDeck } from '../shared/cards';
+import { AIFactory, AIPlayer } from './ai/AIFactory';
+import { AIDifficulty, AIDecision } from '../types/AI';
+
 
 export interface SessionClient {
   ws: WebSocket;
@@ -61,6 +64,8 @@ export class GameSession {
   private gameState: GameState;
   private clients: Map<string, SessionClient> = new Map(); // clientId -> SessionClient
   private deck: Card[] = [];
+  private aiPlayers: Map<string, AIPlayer> = new Map(); // playerId -> AIPlayer
+  private aiTurnTimeout: NodeJS.Timeout | null = null;
   private sendToClient: (ws: WebSocket, message: ServerMessage) => void;
   private onSessionUpdate: () => void;
   private publicIp: string;
@@ -108,7 +113,7 @@ export class GameSession {
     return this.gameState.settings;
   }
 
-  public updateSettings(settings: { mode?: string; stage?: string; maxPlayers?: number }): void {
+  public updateSettings(settings: { mode?: string; stage?: string; maxPlayers?: number; aiDifficulty?: string; aiPlayerCount?: number }): void {
     if (settings.mode) {
       this.gameState.settings.mode = settings.mode as 'classic' | 'tactical' | 'chaos';
     }
@@ -129,6 +134,52 @@ export class GameSession {
           return p;
         })
       };
+    }
+    if (settings.aiDifficulty) {
+      this.gameState.settings.aiDifficulty = settings.aiDifficulty as AIDifficulty;
+    }
+    if (settings.aiPlayerCount !== undefined) {
+      this.gameState.settings.aiPlayerCount = Math.max(0, Math.min(5, settings.aiPlayerCount));
+      this.updateAIPlayers();
+    }
+  }
+
+  /**
+   * Update AI players based on settings
+   */
+  private updateAIPlayers(): void {
+    const targetCount = this.gameState.settings.aiPlayerCount;
+    const currentAICount = this.aiPlayers.size;
+    const difficulty = this.gameState.settings.aiDifficulty as AIDifficulty;
+
+    if (targetCount > currentAICount) {
+      // Add AI players
+      for (let i = currentAICount; i < targetCount; i++) {
+        const aiPlayer = AIFactory.createAIPlayer(difficulty);
+        this.aiPlayers.set(aiPlayer.id, aiPlayer);
+        
+        // Create player object and add to game state
+        const player = AIFactory.createPlayerFromAI(aiPlayer);
+        this.gameState = addPlayer(this.gameState, player);
+        
+        console.log(`[Session ${this.name}] Added AI player: ${aiPlayer.name}`);
+      }
+    } else if (targetCount < currentAICount) {
+      // Remove AI players
+      const aiIds = Array.from(this.aiPlayers.keys());
+      for (let i = currentAICount - 1; i >= targetCount; i--) {
+        const aiId = aiIds[i];
+        const aiPlayer = this.aiPlayers.get(aiId);
+        this.aiPlayers.delete(aiId);
+        
+        // Remove from game state
+        this.gameState = {
+          ...this.gameState,
+          players: this.gameState.players.filter(p => p.id !== aiId)
+        };
+        
+        console.log(`[Session ${this.name}] Removed AI player: ${aiPlayer?.name}`);
+      }
     }
   }
 
@@ -190,6 +241,12 @@ export class GameSession {
         break;
       case 'kick_player':
         this.handleKickPlayer(clientId, message.payload.playerId);
+        break;
+      case 'add_ai_player':
+        this.handleAddAIPlayer(clientId, message.payload);
+        break;
+      case 'remove_ai_player':
+        this.handleRemoveAIPlayer(clientId, message.payload);
         break;
       case 'select_slot':
         this.handleSelectSlot(clientId, message.payload.slot);
@@ -360,6 +417,9 @@ export class GameSession {
 
       console.log(`[Session ${this.name}] Game started!`);
       this.onSessionUpdate();
+      
+      // Check if first turn is AI
+      this.checkAndHandleAITurn();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'START_ERROR');
     }
@@ -456,6 +516,9 @@ export class GameSession {
       });
 
       console.log(`[Session ${this.name}] ${client.playerName} bid ${payload.quantity}x ${payload.faceValue}s`);
+      
+      // Check if next turn is AI
+      this.checkAndHandleAITurn();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'BID_ERROR');
     }
@@ -1055,6 +1118,105 @@ export class GameSession {
     console.log(`[Session ${this.name}] Player ${client.playerName} selected slot ${slot}`);
   }
 
+  /**
+   * Handle adding an AI player to a specific slot
+   */
+  private handleAddAIPlayer(clientId: string, payload: { slot: number; difficulty: string }): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    // Only host can add AI players
+    if (!this.isPlayerHost(clientId)) {
+      this.sendError(client.ws, 'Only the host can add AI players', 'NOT_HOST');
+      return;
+    }
+
+    if (this.gameState.phase !== 'lobby') {
+      this.sendError(client.ws, 'Cannot add AI players during game', 'GAME_IN_PROGRESS');
+      return;
+    }
+
+    const { slot, difficulty } = payload;
+
+    if (slot < 0 || slot >= this.gameState.settings.maxPlayers) {
+      this.sendError(client.ws, 'Invalid slot number', 'INVALID_SLOT');
+      return;
+    }
+
+    // Check if slot is already taken
+    const slotTaken = this.gameState.players.some(p => p.slot === slot);
+    if (slotTaken) {
+      this.sendError(client.ws, 'Slot is already taken', 'SLOT_TAKEN');
+      return;
+    }
+
+    // Parse difficulty
+    const aiDifficulty = AIFactory.parseDifficulty(difficulty);
+    
+    // Create AI player
+    const aiPlayer = AIFactory.createAIPlayer(aiDifficulty);
+    this.aiPlayers.set(aiPlayer.id, aiPlayer);
+    
+    // Create player object and add to game state with the specified slot
+    const player = AIFactory.createPlayerFromAI(aiPlayer, slot);
+    this.gameState = addPlayer(this.gameState, player);
+
+    // Broadcast updated game state
+    this.broadcast({
+      type: 'game_state_update',
+      payload: { gameState: toPublicGameState(this.gameState) }
+    });
+
+    console.log(`[Session ${this.name}] Added AI player ${aiPlayer.name} (${difficulty}) to slot ${slot}`);
+    this.onSessionUpdate();
+  }
+
+  /**
+   * Handle removing an AI player from a slot
+   */
+  private handleRemoveAIPlayer(clientId: string, payload: { playerId: string }): void {
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    // Only host can remove AI players
+    if (!this.isPlayerHost(clientId)) {
+      this.sendError(client.ws, 'Only the host can remove AI players', 'NOT_HOST');
+      return;
+    }
+
+    if (this.gameState.phase !== 'lobby') {
+      this.sendError(client.ws, 'Cannot remove AI players during game', 'GAME_IN_PROGRESS');
+      return;
+    }
+
+    const { playerId } = payload;
+    
+    // Find the AI player
+    const aiPlayer = this.aiPlayers.get(playerId);
+    if (!aiPlayer) {
+      this.sendError(client.ws, 'AI player not found', 'AI_NOT_FOUND');
+      return;
+    }
+
+    // Remove from AI players map
+    this.aiPlayers.delete(playerId);
+
+    // Remove from game state
+    this.gameState = {
+      ...this.gameState,
+      players: this.gameState.players.filter(p => p.id !== playerId)
+    };
+
+    // Broadcast updated game state
+    this.broadcast({
+      type: 'game_state_update',
+      payload: { gameState: toPublicGameState(this.gameState) }
+    });
+
+    console.log(`[Session ${this.name}] Removed AI player ${aiPlayer.name}`);
+    this.onSessionUpdate();
+  }
+
   private sendPrivateInfo(playerId: string): void {
     const player = this.gameState.players.find(p => p.id === playerId);
     if (!player) return;
@@ -1147,6 +1309,236 @@ export class GameSession {
     });
     
     return { ...this.gameState, players: updatedPlayers };
+  }
+
+
+  /**
+   * Check if current turn belongs to an AI player and handle it
+   */
+  private checkAndHandleAITurn(): void {
+    if (this.gameState.phase !== 'bidding') return;
+    
+    const activePlayers = this.gameState.players.filter(p => !p.isEliminated && p.dice.length > 0);
+    if (activePlayers.length === 0) return;
+    
+    const currentPlayer = activePlayers[this.gameState.currentTurnIndex % activePlayers.length];
+    const aiPlayer = this.aiPlayers.get(currentPlayer.id);
+    
+    if (aiPlayer) {
+      // Clear any existing timeout
+      if (this.aiTurnTimeout) {
+        clearTimeout(this.aiTurnTimeout);
+      }
+      
+      // Add a small delay to make AI feel more natural
+      const delay = 1000 + Math.random() * 2000; // 1-3 seconds
+      
+      this.aiTurnTimeout = setTimeout(async () => {
+        await this.executeAITurn(aiPlayer, currentPlayer.id);
+      }, delay);
+    }
+  }
+
+  /**
+   * Execute an AI player's turn
+   */
+  private async executeAITurn(aiPlayer: AIPlayer, playerId: string): Promise<void> {
+    try {
+      console.log(`[Session ${this.name}] AI ${aiPlayer.name} is thinking...`);
+      
+      const decision = await aiPlayer.makeDecision(this.gameState, playerId);
+      
+      console.log(`[Session ${this.name}] AI ${aiPlayer.name} decided: ${decision.action}${decision.bid ? ` (${decision.bid.quantity}x${decision.bid.faceValue})` : ''}`);
+      
+      // Execute the decision
+      switch (decision.action) {
+        case 'bid':
+          if (decision.bid) {
+            this.executeAIBid(playerId, aiPlayer.name, decision.bid.quantity, decision.bid.faceValue);
+          }
+          break;
+        
+        case 'dudo':
+          this.executeAIDudo(playerId, aiPlayer.name);
+          break;
+        
+        case 'jonti':
+          this.executeAIJonti(playerId, aiPlayer.name);
+          break;
+        
+        case 'play_card':
+          if (decision.cardPlay) {
+            this.executeAICardPlay(playerId, aiPlayer.name, decision.cardPlay);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error(`[Session ${this.name}] AI ${aiPlayer.name} error:`, error);
+      // Fallback: make a simple bid or call dudo
+      this.executeAIFallback(playerId, aiPlayer.name);
+    }
+  }
+
+  /**
+   * Execute AI bid
+   */
+  private executeAIBid(playerId: string, playerName: string, quantity: number, faceValue: number): void {
+    try {
+      this.gameState = makeBid(this.gameState, playerId, quantity, faceValue);
+
+      this.broadcast({
+        type: 'bid_made',
+        payload: {
+          playerId,
+          bid: this.gameState.currentBid,
+          gameState: toPublicGameState(this.gameState)
+        }
+      });
+
+      console.log(`[Session ${this.name}] AI ${playerName} bid ${quantity}x ${faceValue}s`);
+      
+      // Check for next AI turn
+      this.checkAndHandleAITurn();
+    } catch (error: any) {
+      console.error(`[Session ${this.name}] AI bid error:`, error.message);
+      this.executeAIFallback(playerId, playerName);
+    }
+  }
+
+  /**
+   * Execute AI dudo call
+   */
+  private executeAIDudo(playerId: string, playerName: string): void {
+    try {
+      const { newState, result } = callDudo(this.gameState, playerId);
+      this.gameState = newState;
+
+      this.broadcast({
+        type: 'dudo_called',
+        payload: {
+          callerId: playerId,
+          callerName: playerName
+        }
+      });
+
+      const { newState: finalState, cardDrawn } = applyDudoResult(this.gameState, result, false, false);
+      this.gameState = finalState;
+
+      const loser = this.gameState.players.find(p => p.id === result.loserId);
+      const cardDrawInfo = cardDrawn ? {
+        playerId: result.loserId,
+        playerName: loser?.name || 'Unknown'
+      } : null;
+
+      this.broadcast({
+        type: 'dudo_result',
+        payload: {
+          result,
+          gameState: toPublicGameState(this.gameState),
+          cardDrawInfo
+        }
+      });
+
+      // Update AI models
+      for (const [id, ai] of this.aiPlayers) {
+        ai.updateModels(this.gameState, id, result);
+      }
+
+      if (this.gameState.phase === 'game_over') {
+        const winner = this.gameState.players.find(p => p.id === this.gameState.winnerId);
+        this.broadcast({
+          type: 'game_over',
+          payload: {
+            winnerId: this.gameState.winnerId,
+            winnerName: winner?.name,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+      }
+
+      console.log(`[Session ${this.name}] AI ${playerName} called Dudo. Result: ${result.success ? 'Success' : 'Failed'}`);
+      this.onSessionUpdate();
+    } catch (error: any) {
+      console.error(`[Session ${this.name}] AI dudo error:`, error.message);
+    }
+  }
+
+  /**
+   * Execute AI jonti call
+   */
+  private executeAIJonti(playerId: string, playerName: string): void {
+    try {
+      const { newState, result } = callJonti(this.gameState, playerId);
+      this.gameState = newState;
+
+      this.broadcast({
+        type: 'jonti_called',
+        payload: {
+          callerId: playerId,
+          callerName: playerName
+        }
+      });
+
+      const { newState: finalState } = applyJontiResult(this.gameState, result);
+      this.gameState = finalState;
+
+      this.broadcast({
+        type: 'jonti_result',
+        payload: {
+          result,
+          gameState: toPublicGameState(this.gameState)
+        }
+      });
+
+      if (this.gameState.phase === 'game_over') {
+        const winner = this.gameState.players.find(p => p.id === this.gameState.winnerId);
+        this.broadcast({
+          type: 'game_over',
+          payload: {
+            winnerId: this.gameState.winnerId,
+            winnerName: winner?.name,
+            gameState: toPublicGameState(this.gameState)
+          }
+        });
+      }
+
+      console.log(`[Session ${this.name}] AI ${playerName} called Jonti. Result: ${result.success ? 'Success' : 'Failed'}`);
+      this.onSessionUpdate();
+    } catch (error: any) {
+      console.error(`[Session ${this.name}] AI jonti error:`, error.message);
+    }
+  }
+
+  /**
+   * Execute AI card play
+   */
+  private executeAICardPlay(playerId: string, playerName: string, cardPlay: any): void {
+    // For now, just log the card play - full implementation would handle each card type
+    console.log(`[Session ${this.name}] AI ${playerName} would play card: ${cardPlay.cardType}`);
+    
+    // Fallback to making a bid instead
+    this.executeAIFallback(playerId, playerName);
+  }
+
+  /**
+   * Fallback AI action when primary action fails
+   */
+  private executeAIFallback(playerId: string, playerName: string): void {
+    const { currentBid, players } = this.gameState;
+    const totalDice = players.filter(p => !p.isEliminated).reduce((sum, p) => sum + p.dice.length, 0);
+
+    if (!currentBid) {
+      // Make opening bid
+      this.executeAIBid(playerId, playerName, 1, 2);
+    } else if (currentBid.quantity >= totalDice * 0.6) {
+      // Bid seems high, call dudo
+      this.executeAIDudo(playerId, playerName);
+    } else {
+      // Make a simple increment
+      const newQuantity = currentBid.faceValue < 6 ? currentBid.quantity : currentBid.quantity + 1;
+      const newFace = currentBid.faceValue < 6 ? currentBid.faceValue + 1 : 2;
+      this.executeAIBid(playerId, playerName, newQuantity, newFace);
+    }
   }
 
   public isEmpty(): boolean {

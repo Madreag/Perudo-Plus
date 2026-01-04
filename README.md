@@ -178,6 +178,71 @@ If you get disconnected during a game:
 **Chaos Mode:** Same as Tactical, but with more dice manipulation cards:
 - Re-roll One (4), Blind Swap (3), Polish (2), Crack (2)
 
+
+
+## AI Opponents
+
+Perudo+ features intelligent AI opponents with four distinct difficulty levels. You can add AI players to your game session through the lobby settings.
+
+### AI Difficulty Levels
+
+#### 🍺 Easy - "The Town Drunk"
+- **Logic**: Stochastic decision making with minimal strategy
+- **Behavior**: 
+  - 60% random valid bids
+  - 40% bids based on own hand count + random factor
+  - Random card usage (20% chance)
+- **Best for**: New players learning the game, casual fun
+
+#### 🎲 Normal - "The Casual"  
+- **Logic**: Heuristic-based assuming all dice are standard d6
+- **Behavior**:
+  - Uses formula: `Expected = Own_Count + (Unknown_Count / 3)`
+  - Bids at `floor(Expected)` level
+  - Reactive card usage (e.g., Insurance when calling risky Dudo)
+- **Best for**: Regular gameplay, balanced challenge
+
+#### 🧮 Hard - "The Mathematician"
+- **Logic**: Exact probability calculations using Poisson Binomial Distribution
+- **Behavior**:
+  - Calculates true probabilities for mixed dice types
+  - Bayesian opponent modeling (tracks bidding patterns)
+  - Decision thresholds:
+    - Bids if P(Safe) > 45%
+    - Calls Dudo if P(Success) > 55%
+    - Calls Jonti if P(Exact) > 25%
+  - Strategic card usage based on expected value
+- **Best for**: Experienced players seeking a challenge
+
+#### 💀 Chuck Norris - "The Solver"
+- **Logic**: Information Set Monte Carlo Tree Search (ISMCTS)
+- **Behavior**:
+  - Uses worker threads for heavy computation (5 second time budget)
+  - Runs 50,000-100,000 simulations per decision
+  - Samples opponent hands based on Bayesian beliefs
+  - Simulates deep game trees including card effects
+  - Plays near-optimal Nash Equilibrium strategy
+  - Optimal bluffing frequency
+- **Best for**: Expert players, testing your skills against near-perfect play
+
+### Adding AI Players
+
+1. Create or join a game session
+2. In the lobby, the host can adjust AI settings:
+   - **AI Difficulty**: Select the difficulty level for AI opponents
+   - **AI Player Count**: Choose how many AI players to add (0-5)
+3. AI players will automatically be assigned to available slots
+4. Start the game when ready - AI players will take their turns automatically
+
+### AI Technical Details
+
+The AI system uses several sophisticated algorithms:
+
+- **Probability Engine**: Implements Poisson Binomial Distribution via dynamic programming for exact probability calculations with mixed dice types
+- **Opponent Modeling**: Tracks opponent bid history to estimate bluff frequency and face preferences
+- **MCTS**: Monte Carlo Tree Search with UCB1 selection for optimal decision making
+- **Worker Threads**: Chuck Norris AI uses Node.js worker threads to avoid blocking the main game loop
+
 ## Project Structure
 
     perudo-plus/

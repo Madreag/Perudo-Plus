@@ -58,6 +58,8 @@ export class UIManager {
   public onResumeGame: (() => void) | null = null;
   public onKickPlayer: ((playerId: string) => void) | null = null;
   public onSelectSlot: ((slot: number | null) => void) | null = null;
+  public onAddAIPlayer: ((slot: number, difficulty: string) => void) | null = null;
+  public onRemoveAIPlayer: ((playerId: string) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -1660,6 +1662,54 @@ export class UIManager {
         cursor: not-allowed;
       }
 
+      /* AI Player Styles */
+      .ai-difficulty-select {
+        padding: 4px 8px;
+        background: rgba(155, 89, 182, 0.3);
+        border: 1px solid rgba(155, 89, 182, 0.5);
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.85em;
+        min-width: 140px;
+      }
+
+      .ai-difficulty-select:hover {
+        background: rgba(155, 89, 182, 0.5);
+      }
+
+      .ai-difficulty-select option {
+        background: #2c3e50;
+        color: white;
+      }
+
+      .remove-ai-btn {
+        padding: 4px 8px;
+        background: rgba(231, 76, 60, 0.3);
+        border: 1px solid rgba(231, 76, 60, 0.5);
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.85em;
+      }
+
+      .remove-ai-btn:hover {
+        background: rgba(231, 76, 60, 0.5);
+      }
+
+      .slot-row.ai-player {
+        background: rgba(155, 89, 182, 0.15);
+        border-color: rgba(155, 89, 182, 0.3);
+      }
+
+      .slot-player-name.ai {
+        color: #9b59b6;
+      }
+
+      .slot-player-name.ai::before {
+        content: '🤖 ';
+      }
+
       /* Unassigned Players List */
       .unassigned-list {
         max-height: 300px;
@@ -3228,13 +3278,14 @@ export class UIManager {
         const playerInSlot = this.gameState.players.find(p => p.slot === i);
         const isOccupied = !!playerInSlot;
         const isMySlot = mySlot === i;
+        const isAIPlayer = playerInSlot?.isAI || false;
         
         slotsHtml += `
-          <div class="slot-row ${isOccupied ? 'occupied' : 'empty'}">
+          <div class="slot-row ${isOccupied ? 'occupied' : 'empty'} ${isAIPlayer ? 'ai-player' : ''}">
             <div class="slot-number">Slot ${i + 1}</div>
             <div class="slot-content">
               ${isOccupied ? `
-                <span class="slot-player-name ${playerInSlot.isHost ? 'host' : ''}">${playerInSlot.name}</span>
+                <span class="slot-player-name ${playerInSlot.isHost ? 'host' : ''} ${isAIPlayer ? 'ai' : ''}">${playerInSlot.name}</span>
                 <span class="slot-player-ip">(${playerInSlot.ip})</span>
                 <span>${playerInSlot.isConnected ? '🟢' : '🔴'}</span>
               ` : `
@@ -3245,10 +3296,22 @@ export class UIManager {
               ${!isOccupied && mySlot === null ? `
                 <button class="slot-select" data-slot="${i}">Join</button>
               ` : ''}
+              ${!isOccupied && this.isHost ? `
+                <select class="ai-difficulty-select" data-slot="${i}">
+                  <option value="">+ Add AI</option>
+                  <option value="easy">Easy - The Town Drunk</option>
+                  <option value="normal">Normal - The Casual</option>
+                  <option value="hard">Hard - The Mathematician</option>
+                  <option value="chuck_norris">Chuck Norris - The Solver</option>
+                </select>
+              ` : ''}
               ${isMySlot ? `
                 <button class="slot-select" data-slot="leave">Leave</button>
               ` : ''}
-              ${this.isHost && isOccupied && playerInSlot.id !== this.playerId ? `
+              ${this.isHost && isOccupied && isAIPlayer ? `
+                <button class="remove-ai-btn" data-player-id="${playerInSlot.id}">Remove</button>
+              ` : ''}
+              ${this.isHost && isOccupied && !isAIPlayer && playerInSlot.id !== this.playerId ? `
                 <button class="kick-btn" data-player-id="${playerInSlot.id}">Kick</button>
               ` : ''}
             </div>
@@ -3265,6 +3328,29 @@ export class UIManager {
             this.onSelectSlot?.(null);
           } else if (slotStr !== null) {
             this.onSelectSlot?.(parseInt(slotStr, 10));
+          }
+        });
+      });
+
+      // Add AI difficulty dropdown event listeners
+      slotList.querySelectorAll('.ai-difficulty-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const selectEl = e.target as HTMLSelectElement;
+          const slot = parseInt(selectEl.getAttribute('data-slot') || '0', 10);
+          const difficulty = selectEl.value;
+          if (difficulty) {
+            this.onAddAIPlayer?.(slot, difficulty);
+            selectEl.value = ''; // Reset dropdown
+          }
+        });
+      });
+
+      // Add remove AI button event listeners
+      slotList.querySelectorAll('.remove-ai-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const playerId = (e.target as HTMLElement).getAttribute('data-player-id');
+          if (playerId) {
+            this.onRemoveAIPlayer?.(playerId);
           }
         });
       });

@@ -32,7 +32,9 @@ const DEFAULT_SETTINGS: GameSettings = {
   stage: 'casino',
   maxPlayers: 6,
   enableCalza: false,
-  enableLastStand: false
+  enableLastStand: false,
+  aiDifficulty: 'normal',
+  aiPlayerCount: 0
 };
 
 export class SessionManager {

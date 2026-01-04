@@ -537,6 +537,20 @@ export class NetworkClient {
     });
   }
 
+  public addAIPlayer(slot: number, difficulty: string): void {
+    this.send({
+      type: 'add_ai_player',
+      payload: { slot, difficulty }
+    });
+  }
+
+  public removeAIPlayer(playerId: string): void {
+    this.send({
+      type: 'remove_ai_player',
+      payload: { playerId }
+    });
+  }
+
   public getPlayerId(): string {
     return this.playerId;
   }

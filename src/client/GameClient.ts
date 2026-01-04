@@ -421,6 +421,14 @@ export class GameClient {
     this.ui.onSelectSlot = (slot) => {
       this.network.selectSlot(slot);
     };
+
+    this.ui.onAddAIPlayer = (slot, difficulty) => {
+      this.network.addAIPlayer(slot, difficulty);
+    };
+
+    this.ui.onRemoveAIPlayer = (playerId) => {
+      this.network.removeAIPlayer(playerId);
+    };
   }
 
   private updatePlayerIndexMap(): void {
