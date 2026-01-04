@@ -23,6 +23,7 @@ export class UIManager {
   private playerId: string = '';
   private isHost: boolean = false;
   private pendingCard: Card | null = null;
+  private pendingCardDraw: { playerId: string; playerName: string } | null = null;
   private selectedTargetPlayerId: string | null = null;
   private selectedTargetDieId: string | null = null;
   private selectedDieIds: string[] = [];
@@ -238,6 +239,18 @@ export class UIManager {
 
           <!-- Players Panel -->
           <div id="players-panel" class="players-panel"></div>
+
+          <!-- Card Deck (center of table) -->
+          <div id="card-deck-container" class="card-deck-container">
+            <div id="card-deck" class="card-deck-3d">
+              <div class="deck-card"></div>
+              <div class="deck-card"></div>
+              <div class="deck-card"></div>
+              <div class="deck-card"></div>
+              <div class="deck-card"></div>
+            </div>
+            <div class="deck-label">Draw Deck</div>
+          </div>
 
           <!-- Private Info Panel -->
           <div id="private-panel" class="private-panel">
@@ -481,6 +494,16 @@ export class UIManager {
     // Continue after result
     document.getElementById('continue-btn')?.addEventListener('click', () => {
       this.hideModal('result-modal');
+      
+      // Play card draw animation after 0.25s delay if there's a pending card draw
+      if (this.pendingCardDraw) {
+        const cardDrawInfo = this.pendingCardDraw;
+        this.pendingCardDraw = null;
+        setTimeout(() => {
+          this.playCardDrawAnimation(cardDrawInfo.playerId);
+        }, 250);
+      }
+      
       this.onReadyForRound?.();
     });
 
@@ -1533,6 +1556,122 @@ export class UIManager {
       .player-stats {
         font-size: 0.9em;
         color: #aaa;
+      }
+
+      /* 3D Card Deck */
+      .card-deck-container {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        z-index: 10;
+        perspective: 800px;
+      }
+
+      .card-deck-3d {
+        position: relative;
+        width: 70px;
+        height: 100px;
+        transform-style: preserve-3d;
+        transform: rotateX(25deg) rotateY(-10deg);
+      }
+
+      .deck-card {
+        position: absolute;
+        width: 70px;
+        height: 100px;
+        background: linear-gradient(135deg, #2a4a6a 0%, #1a3050 50%, #2a4a6a 100%);
+        border: 2px solid #4a7a9a;
+        border-radius: 8px;
+        box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+        backface-visibility: hidden;
+      }
+
+      .deck-card::before {
+        content: '🎴';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 28px;
+        opacity: 0.6;
+      }
+
+      .deck-card::after {
+        content: '';
+        position: absolute;
+        inset: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 5px;
+        background: repeating-linear-gradient(
+          45deg,
+          transparent,
+          transparent 3px,
+          rgba(255, 255, 255, 0.03) 3px,
+          rgba(255, 255, 255, 0.03) 6px
+        );
+      }
+
+      .deck-card:nth-child(1) { transform: translateZ(0px); }
+      .deck-card:nth-child(2) { transform: translateZ(3px); }
+      .deck-card:nth-child(3) { transform: translateZ(6px); }
+      .deck-card:nth-child(4) { transform: translateZ(9px); }
+      .deck-card:nth-child(5) { transform: translateZ(12px); }
+
+      .deck-label {
+        margin-top: 20px;
+        color: #aaa;
+        font-size: 0.85em;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+      }
+
+      /* Card draw animation */
+      .card-drawing {
+        position: fixed;
+        width: 70px;
+        height: 100px;
+        background: linear-gradient(135deg, #4ecdc4 0%, #2a8a85 50%, #4ecdc4 100%);
+        border: 2px solid #6eeee6;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(78, 205, 196, 0.6);
+        z-index: 10000;
+        pointer-events: none;
+        animation: cardDrawAnim 0.8s ease-out forwards;
+      }
+
+      .card-drawing::before {
+        content: '✨';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 24px;
+      }
+
+      @keyframes cardDrawAnim {
+        0% {
+          opacity: 1;
+          transform: scale(1) rotateY(0deg) translate(0, 0);
+        }
+        20% {
+          opacity: 1;
+          transform: scale(1.15) rotateY(0deg) translate(0, -30px);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.1) rotateY(90deg) translate(calc(var(--target-x) * 0.5), calc(var(--target-y) * 0.5 - 40px));
+        }
+        80% {
+          opacity: 1;
+          transform: scale(1) rotateY(180deg) translate(var(--target-x), var(--target-y));
+        }
+        100% {
+          opacity: 0;
+          transform: scale(0.6) rotateY(180deg) translate(var(--target-x), var(--target-y));
+        }
       }
 
       .private-panel {
@@ -2743,7 +2882,7 @@ export class UIManager {
       playersPanel.innerHTML = `
         <h3>Players</h3>
         ${this.gameState.players.map(p => `
-          <div class="player-status ${p.id === currentPlayer?.id ? 'current-turn' : ''} ${p.isEliminated ? 'eliminated' : ''}">
+          <div class="player-status ${p.id === currentPlayer?.id ? 'current-turn' : ''} ${p.isEliminated ? 'eliminated' : ''}" data-player-id="${p.id}">
             <div class="player-name">${p.name} ${p.id === this.playerId ? '(You)' : ''}</div>
             <div class="player-stats">
               🎲 ${p.diceCount} dice | 🃏 ${p.cardCount} cards
@@ -2948,7 +3087,7 @@ export class UIManager {
   }
 
 
-  public showDudoResult(result: DudoResult): void {
+  public showDudoResult(result: DudoResult, cardDrawInfo?: { playerId: string; playerName: string }): void {
     const modal = document.getElementById('result-modal');
     const title = document.getElementById('result-title');
     const details = document.getElementById('result-details');
@@ -2981,6 +3120,9 @@ export class UIManager {
         </div>
       `;
     }).join('');
+
+    // Store pending card draw info for animation after continue button
+    this.pendingCardDraw = cardDrawInfo || null;
 
     this.showModal('result-modal');
   }
@@ -3160,6 +3302,57 @@ export class UIManager {
       container.appendChild(msgEl);
       container.scrollTop = container.scrollHeight;
     }
+  }
+
+  public playCardDrawAnimation(targetPlayerId?: string): void {
+    const deck = document.getElementById('card-deck');
+    
+    if (!deck) return;
+    
+    // Get deck position
+    const deckRect = deck.getBoundingClientRect();
+    
+    // Find target element - either the player's card in the players panel or the private panel
+    let targetRect: DOMRect;
+    
+    if (targetPlayerId) {
+      // Try to find the player element in the players panel
+      const playerElement = document.querySelector(`[data-player-id="${targetPlayerId}"]`);
+      if (playerElement) {
+        targetRect = playerElement.getBoundingClientRect();
+      } else {
+        // Fallback to private panel if it's the current player
+        const privatePanel = document.getElementById('private-panel');
+        if (!privatePanel) return;
+        targetRect = privatePanel.getBoundingClientRect();
+      }
+    } else {
+      // Fallback to private panel
+      const privatePanel = document.getElementById('private-panel');
+      if (!privatePanel) return;
+      targetRect = privatePanel.getBoundingClientRect();
+    }
+    
+    // Create animated card element
+    const animCard = document.createElement('div');
+    animCard.className = 'card-drawing';
+    animCard.style.left = `${deckRect.left + deckRect.width / 2 - 35}px`;
+    animCard.style.top = `${deckRect.top + deckRect.height / 2 - 50}px`;
+    
+    // Calculate target position (center of target element)
+    const targetX = targetRect.left + targetRect.width / 2;
+    const targetY = targetRect.top + targetRect.height / 2;
+    
+    // Set CSS custom properties for animation target
+    animCard.style.setProperty('--target-x', `${targetX - deckRect.left - deckRect.width / 2 + 35}px`);
+    animCard.style.setProperty('--target-y', `${targetY - deckRect.top - deckRect.height / 2 + 50}px`);
+    
+    document.body.appendChild(animCard);
+    
+    // Remove after animation completes
+    setTimeout(() => {
+      animCard.remove();
+    }, 900);
   }
 
   public addSystemMessage(message: string, isCardPlay: boolean = false): void {

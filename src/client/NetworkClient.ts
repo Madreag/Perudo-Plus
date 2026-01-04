@@ -37,13 +37,14 @@ export interface NetworkClientEvents {
   onPlayerLeft: (playerId: string, playerName: string) => void;
   onBidMade: (playerId: string, bid: Bid) => void;
   onDudoCalled: (callerId: string, callerName: string) => void;
-  onDudoResult: (result: DudoResult) => void;
+  onDudoResult: (result: DudoResult, cardDrawInfo?: { playerId: string; playerName: string }) => void;
   onJontiCalled: (callerId: string, callerName: string) => void;
   onJontiResult: (result: JontiResult) => void;
   onRoundStarted: (roundNumber: number) => void;
   onGameOver: (winnerId: string, winnerName: string) => void;
   onCardPlayed: (playerId: string, cardType: string, cardName: string, result?: any) => void;
   onCardDrawn: (card: Card) => void;
+  onPlayerDrewCard: (playerId: string, playerName: string) => void;
   onChat: (playerId: string, playerName: string, message: string) => void;
   onError: (message: string, code: string) => void;
   onServerInfo: (publicIp: string, port: number) => void;
@@ -258,7 +259,7 @@ export class NetworkClient {
         break;
 
       case 'dudo_result':
-        this.events.onDudoResult?.(message.payload.result);
+        this.events.onDudoResult?.(message.payload.result, message.payload.cardDrawInfo);
         this.events.onGameStateUpdate?.(message.payload.gameState);
         break;
 
@@ -301,6 +302,13 @@ export class NetworkClient {
 
       case 'card_drawn':
         this.events.onCardDrawn?.(message.payload.card);
+        break;
+
+      case 'player_drew_card':
+        this.events.onPlayerDrewCard?.(
+          message.payload.playerId,
+          message.payload.playerName
+        );
         break;
 
       case 'chat':

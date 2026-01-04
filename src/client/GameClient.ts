@@ -206,8 +206,8 @@ export class GameClient {
       this.ui.showNotification('🚨', `<b>${callerName}</b> called <b>DUDO!</b>`, 'danger');
     });
 
-    this.network.on('onDudoResult', (result) => {
-      this.ui.showDudoResult(result);
+    this.network.on('onDudoResult', (result, cardDrawInfo) => {
+      this.ui.showDudoResult(result, cardDrawInfo);
       
       // Reveal all dice in 3D
       this.renderer.revealAllDice(result.revealedDice, this.playerIndexMap);
@@ -251,6 +251,7 @@ export class GameClient {
     });
 
     this.network.on('onCardDrawn', (card) => {
+      // This is only sent to the player who drew - show the card details
       this.ui.addSystemMessage(`You drew: ${card.name}`);
     });
 

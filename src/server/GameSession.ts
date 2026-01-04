@@ -496,16 +496,24 @@ export class GameSession {
         this.gameState = setActiveEffect(this.gameState, client.playerId, 'doubleDudo', false);
       }
 
-      // Broadcast result
+      // Include card draw info in dudo_result for delayed animation on client
+      const loser = this.gameState.players.find(p => p.id === result.loserId);
+      const cardDrawInfo = cardDrawn ? {
+        playerId: result.loserId,
+        playerName: loser?.name || 'Unknown'
+      } : null;
+
+      // Broadcast result with card draw info
       this.broadcast({
         type: 'dudo_result',
         payload: {
           result,
-          gameState: toPublicGameState(this.gameState)
+          gameState: toPublicGameState(this.gameState),
+          cardDrawInfo
         }
       });
 
-      // If card was drawn, notify the player
+      // Send actual card details only to the player who drew
       if (cardDrawn) {
         const loserClient = Array.from(this.clients.values()).find(
           c => c.playerId === result.loserId

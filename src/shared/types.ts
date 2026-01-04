@@ -281,6 +281,7 @@ export type ServerMessageType =
   | 'game_over'
   | 'card_played'
   | 'card_drawn'
+  | 'player_drew_card'
   | 'error'
   | 'chat'
   | 'server_info'
