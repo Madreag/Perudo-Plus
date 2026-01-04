@@ -13,7 +13,8 @@ import {
   GamePhase,
   SessionInfo,
   GameSettings,
-  GameMode
+  GameMode,
+  StageType
 } from '../shared/types';
 
 export class UIManager {
@@ -38,7 +39,7 @@ export class UIManager {
   public onJoinSession: ((sessionId: string, playerName: string) => void) | null = null;
   public onLeaveSession: (() => void) | null = null;
   public onRefreshSessions: (() => void) | null = null;
-  public onUpdateSessionSettings: ((settings: { mode?: string; maxPlayers?: number }) => void) | null = null;
+  public onUpdateSessionSettings: ((settings: { mode?: string; maxPlayers?: number; stage?: string }) => void) | null = null;
   public onDeleteSession: (() => void) | null = null;
   
   // Game callbacks
@@ -140,6 +141,14 @@ export class UIManager {
                 <option value="6" selected>6 Players</option>
               </select>
             </div>
+            <div class="form-group">
+              <label for="session-stage">Stage:</label>
+              <select id="session-stage">
+                <option value="casino" selected>🎰 Casino</option>
+                <option value="dungeon">🏰 Medieval Dungeon</option>
+                <option value="beach">🏖️ Beach</option>
+              </select>
+            </div>
             <div class="modal-buttons">
               <button id="cancel-create-session" class="btn secondary">Cancel</button>
               <button id="confirm-create-session" class="btn primary">Create</button>
@@ -207,6 +216,14 @@ export class UIManager {
                     <option value="4">4</option>
                     <option value="5">5</option>
                     <option value="6">6</option>
+                  </select>
+                </div>
+                <div class="settings-group">
+                  <label for="settings-stage">Stage:</label>
+                  <select id="settings-stage" class="settings-select">
+                    <option value="casino">🎰 Casino</option>
+                    <option value="dungeon">🏰 Medieval Dungeon</option>
+                    <option value="beach">🏖️ Beach</option>
                   </select>
                 </div>
                 <div class="settings-actions">
@@ -589,6 +606,7 @@ export class UIManager {
       const sessionName = (document.getElementById('session-name') as HTMLInputElement).value.trim();
       const mode = (document.getElementById('session-mode') as HTMLSelectElement).value as GameMode;
       const maxPlayers = parseInt((document.getElementById('session-max-players') as HTMLSelectElement).value, 10);
+      const stage = (document.getElementById('session-stage') as HTMLSelectElement).value as StageType;
       const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Host';
 
       if (!sessionName) {
@@ -597,7 +615,7 @@ export class UIManager {
       }
 
       this.hideModal('create-session-modal');
-      this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers });
+      this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers, stage });
     });
 
     // Leave Session (back to browser)
@@ -615,6 +633,12 @@ export class UIManager {
     document.getElementById('settings-max-players')?.addEventListener('change', (e) => {
       const maxPlayers = parseInt((e.target as HTMLSelectElement).value, 10);
       this.onUpdateSessionSettings?.({ maxPlayers });
+    });
+
+    // Host Settings - Stage
+    document.getElementById('settings-stage')?.addEventListener('change', (e) => {
+      const stage = (e.target as HTMLSelectElement).value;
+      this.onUpdateSessionSettings?.({ stage });
     });
 
     // Host Settings - Delete Session
@@ -2684,15 +2708,19 @@ export class UIManager {
     }
   }
 
-  public updateSessionSettings(settings: { mode: string; maxPlayers: number }): void {
+  public updateSessionSettings(settings: { mode: string; maxPlayers: number; stage: string }): void {
     const gameModeSelect = document.getElementById('settings-game-mode') as HTMLSelectElement;
     const maxPlayersSelect = document.getElementById('settings-max-players') as HTMLSelectElement;
+    const stageSelect = document.getElementById('settings-stage') as HTMLSelectElement;
     
     if (gameModeSelect && settings.mode) {
       gameModeSelect.value = settings.mode;
     }
     if (maxPlayersSelect && settings.maxPlayers) {
       maxPlayersSelect.value = String(settings.maxPlayers);
+    }
+    if (stageSelect && settings.stage) {
+      stageSelect.value = settings.stage;
     }
   }
 

@@ -6,7 +6,7 @@ import { NetworkClient } from './NetworkClient';
 import { GameRenderer } from './GameRenderer';
 import { UIManager } from './UIManager';
 import { MusicManager } from './MusicManager';
-import { PublicGameState, Die, Card, DudoResult, JontiResult } from '../shared/types';
+import { PublicGameState, Die, Card, DudoResult, JontiResult, StageType } from '../shared/types';
 
 export class GameClient {
   private network: NetworkClient;
@@ -107,6 +107,10 @@ export class GameClient {
     this.network.on('onSessionSettingsUpdated', (settings) => {
       console.log('Session settings updated:', settings);
       this.ui.updateSessionSettings(settings);
+      // Update renderer stage if changed
+      if (settings.stage) {
+        this.renderer.setStage(settings.stage as StageType);
+      }
     });
 
     this.network.on('onSessionDeleted', () => {
@@ -129,6 +133,11 @@ export class GameClient {
       this.gameState = state;
       this.updatePlayerIndexMap();
       this.ui.updateGameState(state);
+      
+      // Update renderer stage based on game settings
+      if (state.settings?.stage && this.renderer.getStage() !== state.settings.stage) {
+        this.renderer.setStage(state.settings.stage);
+      }
 
       // Handle music state transitions based on game phase changes
       if (this.previousPhase !== state.phase) {

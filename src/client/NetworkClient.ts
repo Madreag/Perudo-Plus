@@ -26,7 +26,7 @@ export interface NetworkClientEvents {
   onSessionJoined: (sessionId: string, sessionName: string) => void;
   onSessionLeft: () => void;
   onSessionUpdated: (sessions: SessionInfo[], previousSessionId: string | null) => void;
-  onSessionSettingsUpdated: (settings: { mode: string; maxPlayers: number }) => void;
+  onSessionSettingsUpdated: (settings: { mode: string; maxPlayers: number; stage: string }) => void;
   onSessionDeleted: () => void;
   // Game events
   onConnectionStateChange: (state: ConnectionState) => void;
@@ -396,7 +396,7 @@ export class NetworkClient {
     });
   }
 
-  public updateSessionSettings(settings: { mode?: string; maxPlayers?: number }): void {
+  public updateSessionSettings(settings: { mode?: string; maxPlayers?: number; stage?: string }): void {
     this.send({
       type: 'update_session_settings',
       payload: settings

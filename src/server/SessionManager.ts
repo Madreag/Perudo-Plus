@@ -28,6 +28,7 @@ interface ConnectedClient {
 
 const DEFAULT_SETTINGS: GameSettings = {
   mode: 'tactical',
+  stage: 'casino',
   maxPlayers: 6,
   enableCalza: false,
   enableLastStand: false
@@ -333,7 +334,7 @@ export class SessionManager {
     this.broadcastSessionUpdate();
   }
 
-  private handleUpdateSessionSettings(clientId: string, payload: { mode?: string; maxPlayers?: number }): void {
+  private handleUpdateSessionSettings(clientId: string, payload: { mode?: string; stage?: string; maxPlayers?: number }): void {
     const client = this.clients.get(clientId);
     if (!client || !client.currentSessionId) {
       this.sendError(client?.ws!, 'Not in a session', 'NOT_IN_SESSION');
@@ -361,6 +362,7 @@ export class SessionManager {
       type: 'session_settings_updated',
       payload: {
         mode: updatedSettings.mode,
+        stage: updatedSettings.stage,
         maxPlayers: updatedSettings.maxPlayers
       }
     });
@@ -368,7 +370,7 @@ export class SessionManager {
     // Broadcast game state update so UI reflects new settings (e.g., slot count)
     session.broadcastGameState();
 
-    console.log(`Session settings updated by ${client.playerName}: mode=${payload.mode}, maxPlayers=${payload.maxPlayers}`);
+    console.log(`Session settings updated by ${client.playerName}: mode=${payload.mode}, stage=${payload.stage}, maxPlayers=${payload.maxPlayers}`);
     this.broadcastSessionUpdate();
   }
 

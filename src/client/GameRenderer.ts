@@ -3,7 +3,8 @@
 // ============================================
 
 import * as THREE from 'three';
-import { Die, DieType, PublicPlayerInfo, Bid } from '../shared/types';
+import { Die, DieType, PublicPlayerInfo, Bid, StageType } from '../shared/types';
+import { StageManager } from './StageManager';
 import { DiceGeometryFactory, createDiceMaterials } from './DiceGeometryFactory';
 
 // Dice geometry configurations
@@ -38,6 +39,7 @@ export class GameRenderer {
   private playerPositions: THREE.Vector3[] = [];
   private animationFrameId: number = 0;
   private isAnimating: boolean = false;
+  private stageManager: StageManager;
 
   // Camera orbit controls
   private cameraTheta: number = -Math.PI / 2;  // Horizontal angle (start behind player 0, looking at center)
@@ -56,6 +58,10 @@ export class GameRenderer {
     // Initialize Three.js scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a1a2e);
+    
+    // Initialize stage manager
+    this.stageManager = new StageManager(this.scene);
+    this.stageManager.setStage('casino');
 
     // Camera setup
     const aspect = container.clientWidth / container.clientHeight;
@@ -945,13 +951,25 @@ export class GameRenderer {
   private animate(): void {
     this.animationFrameId = requestAnimationFrame(() => this.animate());
     
+    // Update stage animations
+    this.stageManager.update();
+    
     // Render the scene (camera position is controlled by mouse/scroll)
     this.renderer.render(this.scene, this.camera);
+  }
+
+  public setStage(stage: StageType): void {
+    this.stageManager.setStage(stage);
+  }
+
+  public getStage(): StageType {
+    return this.stageManager.getCurrentStage();
   }
 
   public dispose(): void {
     cancelAnimationFrame(this.animationFrameId);
     this.clearAllDice();
+    this.stageManager.dispose();
     this.renderer.dispose();
     this.container.removeChild(this.renderer.domElement);
   }

@@ -95,6 +95,7 @@ export class GameSession {
       maxPlayers: this.gameState.settings.maxPlayers,
       phase: this.gameState.phase,
       mode: this.gameState.settings.mode,
+      stage: this.gameState.settings.stage,
       createdAt: this.createdAt
     };
   }
@@ -107,9 +108,12 @@ export class GameSession {
     return this.gameState.settings;
   }
 
-  public updateSettings(settings: { mode?: string; maxPlayers?: number }): void {
+  public updateSettings(settings: { mode?: string; stage?: string; maxPlayers?: number }): void {
     if (settings.mode) {
       this.gameState.settings.mode = settings.mode as 'classic' | 'tactical' | 'chaos';
+    }
+    if (settings.stage) {
+      this.gameState.settings.stage = settings.stage as 'casino' | 'dungeon' | 'beach';
     }
     if (settings.maxPlayers !== undefined) {
       const newMaxPlayers = settings.maxPlayers;

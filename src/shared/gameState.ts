@@ -8,6 +8,7 @@ import {
   GameSettings,
   GamePhase,
   GameMode,
+  StageType,
   Player,
   Bid,
   Card,
@@ -36,9 +37,10 @@ import {
 /**
  * Create default game settings
  */
-export function createDefaultSettings(mode: GameMode = 'tactical'): GameSettings {
+export function createDefaultSettings(mode: GameMode = 'tactical', stage: StageType = 'casino'): GameSettings {
   return {
     mode,
+    stage,
     maxPlayers: 5,
     enableCalza: false,
     enableLastStand: false

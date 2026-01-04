@@ -97,9 +97,14 @@ export type GamePhase =
 // Game Mode
 export type GameMode = 'classic' | 'tactical' | 'chaos';
 
+// Stage/Scene Type
+export type StageType = 'casino' | 'dungeon' | 'beach';
+
+
 // Game Settings
 export interface GameSettings {
   mode: GameMode;
+  stage: StageType;
   maxPlayers: number;
   enableCalza: boolean;
   enableLastStand: boolean;
@@ -206,6 +211,7 @@ export interface SessionInfo {
   maxPlayers: number;
   phase: GamePhase;
   mode: GameMode;
+  stage: StageType;
   createdAt: number;
 }
 
@@ -227,6 +233,7 @@ export interface JoinSessionPayload {
 
 export interface UpdateSessionSettingsPayload {
   mode?: GameMode;
+  stage?: StageType;
   maxPlayers?: number;
 }
 
