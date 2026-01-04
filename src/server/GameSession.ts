@@ -1,10 +1,9 @@
 // ============================================
-// Perudo+ Game Server
+// Perudo+ Game Session
+// Handles game logic for a single game session
 // ============================================
 
-import WebSocket, { WebSocketServer } from 'ws';
-import http from 'http';
-import express from 'express';
+import WebSocket from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import {
   GameState,
@@ -17,7 +16,7 @@ import {
   PlayCardPayload,
   PrivateInfoPayload,
   Card,
-  Die
+  SessionInfo
 } from '../shared/types';
 import {
   createGameState,
@@ -33,111 +32,127 @@ import {
   applyJontiResult,
   startNewRound,
   toPublicGameState,
-  getCurrentPlayer,
-  getActivePlayers,
   applyRerollOne,
   applyPolish,
   applyCrack,
   applyInflation,
   applyWildShift,
   removeCardFromHand,
-  isValidBid,
   resetGame,
   setActiveEffect,
-  clearAllActiveEffects,
   pauseGame,
   resumeGame
 } from '../shared/gameState';
-import { createDeck, drawCard } from '../shared/cards';
+import { createDeck } from '../shared/cards';
 
-interface ConnectedClient {
+export interface SessionClient {
   ws: WebSocket;
+  odentityId: string;  // Persistent identity across reconnects
   playerId: string;
   playerName: string;
   ip: string;
 }
 
-export class GameServer {
-  private app: express.Application;
-  private server: http.Server;
-  private wss: WebSocketServer;
+export class GameSession {
+  public readonly id: string;
+  public readonly name: string;
+  public readonly createdAt: number;
+  
   private gameState: GameState;
-  private clients: Map<string, ConnectedClient> = new Map();
+  private clients: Map<string, SessionClient> = new Map(); // clientId -> SessionClient
   private deck: Card[] = [];
+  private sendToClient: (ws: WebSocket, message: ServerMessage) => void;
+  private onSessionUpdate: () => void;
+  private publicIp: string;
   private port: number;
-  private publicIp: string = '';
 
-  constructor(port: number, settings?: GameSettings) {
-    this.port = port;
-    this.app = express();
-    this.server = http.createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.server });
+  constructor(
+    id: string,
+    name: string,
+    settings: GameSettings,
+    sendToClient: (ws: WebSocket, message: ServerMessage) => void,
+    onSessionUpdate: () => void,
+    publicIp: string,
+    port: number
+  ) {
+    this.id = id;
+    this.name = name;
+    this.createdAt = Date.now();
     this.gameState = createGameState(settings);
-    
-    this.setupExpress();
-    this.setupWebSocket();
+    this.sendToClient = sendToClient;
+    this.onSessionUpdate = onSessionUpdate;
+    this.publicIp = publicIp;
+    this.port = port;
   }
 
-  private setupExpress(): void {
-    // Serve static files for the client
-    this.app.use(express.static('dist/client-bundle'));
-    
-    // API endpoint for server info
-    this.app.get('/api/info', (req, res) => {
-      res.json({
-        publicIp: this.publicIp,
-        port: this.port,
-        playerCount: this.gameState.players.length,
-        maxPlayers: this.gameState.settings.maxPlayers,
-        phase: this.gameState.phase
-      });
-    });
+  public getSessionInfo(): SessionInfo {
+    const host = this.gameState.players.find(p => p.isHost);
+    return {
+      id: this.id,
+      name: this.name,
+      hostName: host?.name || 'Unknown',
+      playerCount: this.gameState.players.filter(p => p.isConnected).length,
+      maxPlayers: this.gameState.settings.maxPlayers,
+      phase: this.gameState.phase,
+      mode: this.gameState.settings.mode,
+      createdAt: this.createdAt
+    };
   }
 
-  private setupWebSocket(): void {
-    this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-      const clientId = uuidv4();
-      let clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() 
-        || req.socket.remoteAddress 
-        || 'unknown';
+  public getGameState(): GameState {
+    return this.gameState;
+  }
+
+  public getSettings(): GameSettings {
+    return this.gameState.settings;
+  }
+
+  public updateSettings(settings: { mode?: string; maxPlayers?: number }): void {
+    if (settings.mode) {
+      this.gameState.settings.mode = settings.mode as 'classic' | 'tactical' | 'chaos';
+    }
+    if (settings.maxPlayers !== undefined) {
+      const newMaxPlayers = settings.maxPlayers;
+      this.gameState.settings.maxPlayers = newMaxPlayers;
       
-      // Convert IPv6 mapped IPv4 addresses (::ffff:192.168.1.1) to IPv4
-      if (clientIp.startsWith('::ffff:')) {
-        clientIp = clientIp.substring(7);
-      }
-      // Convert localhost IPv6 (::1) to readable format
-      if (clientIp === '::1' || clientIp === '127.0.0.1') {
-        clientIp = 'localhost';
-      }
-      
-      console.log(`Client connected: ${clientId} from ${clientIp}`);
-
-      ws.on('message', (data: WebSocket.Data) => {
-        try {
-          const message: ClientMessage = JSON.parse(data.toString());
-          this.handleMessage(clientId, ws, clientIp, message);
-        } catch (error) {
-          console.error('Error parsing message:', error);
-          this.sendError(ws, 'Invalid message format', 'PARSE_ERROR');
-        }
-      });
-
-      ws.on('close', () => {
-        this.handleDisconnect(clientId);
-      });
-
-      ws.on('error', (error) => {
-        console.error(`WebSocket error for client ${clientId}:`, error);
-      });
-    });
+      // Unassign players from slots that no longer exist
+      this.gameState = {
+        ...this.gameState,
+        players: this.gameState.players.map(p => {
+          if (p.slot !== null && p.slot >= newMaxPlayers) {
+            return { ...p, slot: null };
+          }
+          return p;
+        })
+      };
+    }
   }
 
-  private handleMessage(clientId: string, ws: WebSocket, clientIp: string, message: ClientMessage): void {
-    console.log(`Received message from ${clientId}:`, message.type);
+  public isPlayerHost(clientId: string): boolean {
+    const client = this.clients.get(clientId);
+    if (!client) return false;
+    const player = this.gameState.players.find(p => p.id === client.playerId);
+    return player?.isHost || false;
+  }
+
+  public getConnectedPlayerCount(): number {
+    return this.gameState.players.filter(p => p.isConnected).length;
+  }
+
+  public hasPlayer(identityId: string): boolean {
+    return Array.from(this.clients.values()).some(c => c.odentityId === identityId);
+  }
+
+  public hasDisconnectedPlayer(playerName: string): boolean {
+    return this.gameState.players.some(p => p.name === playerName && !p.isConnected);
+  }
+
+  public handleMessage(clientId: string, ws: WebSocket, clientIp: string, identityId: string, message: ClientMessage): void {
+    console.log(`[Session ${this.name}] Received message from ${clientId}:`, message.type);
 
     switch (message.type) {
       case 'join_game':
-        this.handleJoinGame(clientId, ws, clientIp, message.payload as JoinGamePayload);
+        this.handleJoinGame(clientId, ws, clientIp, identityId, message.payload as JoinGamePayload);
         break;
       case 'start_game':
         this.handleStartGame(clientId);
@@ -176,18 +191,21 @@ export class GameServer {
         this.handleSelectSlot(clientId, message.payload.slot);
         break;
       default:
-        this.sendError(ws, `Unknown message type: ${message.type}`, 'UNKNOWN_MESSAGE');
+        const client = this.clients.get(clientId);
+        if (client) {
+          this.sendError(client.ws, `Unknown message type: ${message.type}`, 'UNKNOWN_MESSAGE');
+        }
     }
   }
 
-  private handleJoinGame(clientId: string, ws: WebSocket, clientIp: string, payload: JoinGamePayload): void {
+  private handleJoinGame(clientId: string, ws: WebSocket, clientIp: string, identityId: string, payload: JoinGamePayload): void {
     try {
       // Check if this is a reconnecting player (same name, disconnected)
       const existingPlayer = this.gameState.players.find(
         p => p.name === payload.playerName && !p.isConnected
       );
       
-      console.log(`Join request from "${payload.playerName}", existing disconnected player found: ${!!existingPlayer}`);
+      console.log(`[Session ${this.name}] Join request from "${payload.playerName}", existing disconnected player found: ${!!existingPlayer}`);
 
       if (existingPlayer) {
         // Reconnect existing player
@@ -198,7 +216,13 @@ export class GameServer {
           )
         };
 
-        this.clients.set(clientId, { ws, playerId: existingPlayer.id, playerName: existingPlayer.name, ip: existingPlayer.ip });
+        this.clients.set(clientId, { 
+          ws, 
+          odentityId: identityId,
+          playerId: existingPlayer.id, 
+          playerName: existingPlayer.name, 
+          ip: existingPlayer.ip 
+        });
 
         // Send connection accepted
         this.send(ws, {
@@ -207,6 +231,17 @@ export class GameServer {
             playerId: existingPlayer.id,
             isHost: existingPlayer.isHost,
             gameState: toPublicGameState(this.gameState)
+          }
+        });
+
+        // Send server info
+        this.send(ws, {
+          type: 'server_info',
+          payload: {
+            publicIp: this.publicIp,
+            port: this.port,
+            playerCount: this.gameState.players.length,
+            maxPlayers: this.gameState.settings.maxPlayers
           }
         });
 
@@ -231,7 +266,8 @@ export class GameServer {
           }
         });
 
-        console.log(`Player ${existingPlayer.name} reconnected`);
+        console.log(`[Session ${this.name}] Player ${existingPlayer.name} reconnected`);
+        this.onSessionUpdate();
         return;
       }
 
@@ -240,7 +276,13 @@ export class GameServer {
       const player = createPlayer(payload.playerName, isHost, clientIp);
       
       this.gameState = addPlayer(this.gameState, player);
-      this.clients.set(clientId, { ws, playerId: player.id, playerName: player.name, ip: clientIp });
+      this.clients.set(clientId, { 
+        ws, 
+        odentityId: identityId,
+        playerId: player.id, 
+        playerName: player.name, 
+        ip: clientIp 
+      });
 
       // Send connection accepted to the new player
       this.send(ws, {
@@ -248,16 +290,6 @@ export class GameServer {
         payload: {
           playerId: player.id,
           isHost,
-          gameState: toPublicGameState(this.gameState)
-        }
-      });
-
-      // Notify all other players
-      this.broadcastExcept(clientId, {
-        type: 'player_joined',
-        payload: {
-          playerId: player.id,
-          playerName: player.name,
           gameState: toPublicGameState(this.gameState)
         }
       });
@@ -273,7 +305,18 @@ export class GameServer {
         }
       });
 
-      console.log(`Player ${player.name} joined the game`);
+      // Notify all other players
+      this.broadcastExcept(clientId, {
+        type: 'player_joined',
+        payload: {
+          playerId: player.id,
+          playerName: player.name,
+          gameState: toPublicGameState(this.gameState)
+        }
+      });
+
+      console.log(`[Session ${this.name}] Player ${player.name} joined the game`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(ws, error.message, 'JOIN_ERROR');
     }
@@ -311,7 +354,8 @@ export class GameServer {
       // Send private info to each player
       this.sendPrivateInfoToAll();
 
-      console.log('Game started!');
+      console.log(`[Session ${this.name}] Game started!`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'START_ERROR');
     }
@@ -338,7 +382,8 @@ export class GameServer {
         }
       });
 
-      console.log('Game reset to lobby!');
+      console.log(`[Session ${this.name}] Game reset to lobby!`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'RESET_ERROR');
     }
@@ -360,7 +405,8 @@ export class GameServer {
         }
       });
 
-      console.log(`Game paused by ${client.playerName}`);
+      console.log(`[Session ${this.name}] Game paused by ${client.playerName}`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'PAUSE_ERROR');
     }
@@ -382,7 +428,8 @@ export class GameServer {
         }
       });
 
-      console.log(`Game resumed by ${client.playerName}`);
+      console.log(`[Session ${this.name}] Game resumed by ${client.playerName}`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'RESUME_ERROR');
     }
@@ -404,7 +451,7 @@ export class GameServer {
         }
       });
 
-      console.log(`${client.playerName} bid ${payload.quantity}x ${payload.faceValue}s`);
+      console.log(`[Session ${this.name}] ${client.playerName} bid ${payload.quantity}x ${payload.faceValue}s`);
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'BID_ERROR');
     }
@@ -484,7 +531,8 @@ export class GameServer {
         });
       }
 
-      console.log(`Dudo called by ${client.playerName}. Result: ${result.success ? 'Success' : 'Failed'}`);
+      console.log(`[Session ${this.name}] Dudo called by ${client.playerName}. Result: ${result.success ? 'Success' : 'Failed'}`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'DUDO_ERROR');
     }
@@ -533,12 +581,12 @@ export class GameServer {
         });
       }
 
-      console.log(`Jonti called by ${client.playerName}. Result: ${result.success ? 'Success - gained a die!' : 'Failed - lost a die!'}`);
+      console.log(`[Session ${this.name}] Jonti called by ${client.playerName}. Result: ${result.success ? 'Success - gained a die!' : 'Failed - lost a die!'}`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'JONTI_ERROR');
     }
   }
-
 
   private handlePlayCard(clientId: string, payload: PlayCardPayload): void {
     const client = this.clients.get(clientId);
@@ -594,7 +642,6 @@ export class GameServer {
       switch (card.type) {
         case 'reroll_one':
           this.gameState = applyRerollOne(this.gameState, client.playerId, payload.targetDieId!);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -607,7 +654,6 @@ export class GameServer {
           break;
         case 'polish':
           this.gameState = applyPolish(this.gameState, client.playerId, payload.targetDieId!);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -621,7 +667,6 @@ export class GameServer {
         case 'crack':
           {
             let targetDieId = payload.targetDieId;
-            // If client sent a die index instead of ID, resolve it
             if (!targetDieId && payload.additionalData?.dieIndex !== undefined) {
               const targetPlayer = this.gameState.players.find(p => p.id === payload.targetPlayerId);
               if (targetPlayer && targetPlayer.dice[payload.additionalData.dieIndex]) {
@@ -630,7 +675,6 @@ export class GameServer {
             }
             if (!targetDieId) throw new Error('Could not resolve target die');
             this.gameState = applyCrack(this.gameState, payload.targetPlayerId!, targetDieId);
-            // Send result to player
             const crackedPlayerName = this.gameState.players.find(p => p.id === payload.targetPlayerId)?.name || 'opponent';
             this.send(client.ws, {
               type: 'card_played',
@@ -645,7 +689,6 @@ export class GameServer {
           break;
         case 'inflation':
           this.gameState = applyInflation(this.gameState);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -660,7 +703,6 @@ export class GameServer {
           break;
         case 'wild_shift':
           this.gameState = applyWildShift(this.gameState, payload.additionalData.faceValue);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -677,7 +719,6 @@ export class GameServer {
           {
             const targetPlayer = this.gameState.players.find(p => p.id === payload.targetPlayerId);
             let targetDie = targetPlayer?.dice.find(d => d.id === payload.targetDieId);
-            // If client sent a die index instead of ID, resolve it
             if (!targetDie && payload.additionalData?.dieIndex !== undefined && targetPlayer) {
               targetDie = targetPlayer.dice[payload.additionalData.dieIndex];
             }
@@ -700,7 +741,6 @@ export class GameServer {
           {
             const dieInfos: { playerId: string; dieType: string; playerName: string }[] = [];
             for (const dieKey of payload.additionalData.dieIds) {
-              // dieKey format is "playerId-dieIndex" where playerId is a UUID with hyphens
               const parts = dieKey.split('-');
               const dieIndexStr = parts[parts.length - 1];
               const targetPlayerId = parts.slice(0, -1).join('-');
@@ -728,7 +768,6 @@ export class GameServer {
           break;
         case 'blind_swap':
           this.gameState = this.applyBlindSwap(client.playerId, payload.targetDieId!, payload.targetPlayerId!);
-          // Send result to player
           const swappedPlayerName = this.gameState.players.find(p => p.id === payload.targetPlayerId)?.name || 'opponent';
           this.send(client.ws, {
             type: 'card_played',
@@ -742,7 +781,6 @@ export class GameServer {
           break;
         case 'insurance':
           this.gameState = setActiveEffect(this.gameState, client.playerId, 'insurance', true);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -755,7 +793,6 @@ export class GameServer {
           break;
         case 'double_dudo':
           this.gameState = setActiveEffect(this.gameState, client.playerId, 'doubleDudo', true);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -768,7 +805,6 @@ export class GameServer {
           break;
         case 'late_dudo':
           this.gameState = setActiveEffect(this.gameState, client.playerId, 'lateDudo', true);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -781,7 +817,6 @@ export class GameServer {
           break;
         case 'phantom_bid':
           this.gameState = setActiveEffect(this.gameState, client.playerId, 'phantomBid', true);
-          // Send result to player
           this.send(client.ws, {
             type: 'card_played',
             payload: {
@@ -793,7 +828,6 @@ export class GameServer {
           });
           break;
         case 'false_tell':
-          // False tell is just a bluff tool - announce to everyone
           this.broadcast({
             type: 'card_played',
             payload: {
@@ -803,20 +837,18 @@ export class GameServer {
               result: { message: `${client.playerName} claims to have peeked at a die!` }
             }
           });
-          // Don't broadcast again below
           this.gameState = removeCardFromHand(this.gameState, client.playerId, payload.cardId);
           this.sendPrivateInfo(client.playerId);
-          console.log(`${client.playerName} played ${card.name}`);
-          return; // Early return to avoid double broadcast
-          break;
+          console.log(`[Session ${this.name}] ${client.playerName} played ${card.name}`);
+          return;
         default:
-          console.log(`Card ${card.type} played but effect not fully implemented`);
+          console.log(`[Session ${this.name}] Card ${card.type} played but effect not fully implemented`);
       }
 
-      // Remove card from hand (only after successful validation and application)
+      // Remove card from hand
       this.gameState = removeCardFromHand(this.gameState, client.playerId, payload.cardId);
 
-      // Broadcast card played (without revealing private effects)
+      // Broadcast card played
       this.broadcast({
         type: 'card_played',
         payload: {
@@ -830,15 +862,13 @@ export class GameServer {
       // Send updated private info
       this.sendPrivateInfo(client.playerId);
 
-      console.log(`${client.playerName} played ${card.name}`);
+      console.log(`[Session ${this.name}] ${client.playerName} played ${card.name}`);
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'CARD_ERROR');
     }
   }
 
   private handleReadyForRound(clientId: string): void {
-    // In a more complex implementation, we'd track ready states
-    // For now, the host can start the next round
     const client = this.clients.get(clientId);
     if (!client) return;
 
@@ -861,7 +891,8 @@ export class GameServer {
 
       this.sendPrivateInfoToAll();
 
-      console.log(`Round ${this.gameState.roundNumber} started`);
+      console.log(`[Session ${this.name}] Round ${this.gameState.roundNumber} started`);
+      this.onSessionUpdate();
     } catch (error: any) {
       this.sendError(client.ws, error.message, 'ROUND_ERROR');
     }
@@ -882,7 +913,7 @@ export class GameServer {
     });
   }
 
-  private handleDisconnect(clientId: string): void {
+  public handleDisconnect(clientId: string): void {
     const client = this.clients.get(clientId);
     if (!client) return;
 
@@ -901,14 +932,12 @@ export class GameServer {
     const isActiveGame = this.gameState.phase !== 'lobby' && this.gameState.phase !== 'game_over';
     
     if (allDisconnected && isActiveGame) {
-      // Auto-pause the game when all players disconnect
-      // Store current phase so it can be resumed
       this.gameState = {
         ...this.gameState,
         pausedFromPhase: this.gameState.phase,
         phase: 'paused'
       };
-      console.log('All players disconnected - game auto-paused from phase: ' + this.gameState.pausedFromPhase);
+      console.log(`[Session ${this.name}] All players disconnected - game auto-paused from phase: ${this.gameState.pausedFromPhase}`);
     }
 
     this.broadcast({
@@ -920,43 +949,38 @@ export class GameServer {
       }
     });
 
-    console.log(`Player ${client.playerName} disconnected`);
+    console.log(`[Session ${this.name}] Player ${client.playerName} disconnected`);
+    this.onSessionUpdate();
   }
 
   private handleKickPlayer(clientId: string, targetPlayerId: string): void {
     const client = this.clients.get(clientId);
     if (!client) return;
 
-    // Only host can kick players
     const requestingPlayer = this.gameState.players.find(p => p.id === client.playerId);
     if (!requestingPlayer?.isHost) {
       this.sendError(client.ws, 'Only the host can kick players', 'NOT_HOST');
       return;
     }
 
-    // Can't kick yourself
     if (targetPlayerId === client.playerId) {
       this.sendError(client.ws, 'Cannot kick yourself', 'KICK_ERROR');
       return;
     }
 
-    // Find the target player
     const targetPlayer = this.gameState.players.find(p => p.id === targetPlayerId);
     if (!targetPlayer) {
       this.sendError(client.ws, 'Player not found', 'PLAYER_NOT_FOUND');
       return;
     }
 
-    // Remove player from game state
     this.gameState = {
       ...this.gameState,
       players: this.gameState.players.filter(p => p.id !== targetPlayerId)
     };
 
-    // Find and close the target's connection
     for (const [cid, c] of this.clients.entries()) {
       if (c.playerId === targetPlayerId) {
-        // Send kicked message to the player being kicked
         this.send(c.ws, {
           type: 'player_kicked',
           payload: { reason: 'You have been kicked by the host' }
@@ -967,7 +991,6 @@ export class GameServer {
       }
     }
 
-    // Notify remaining players
     this.broadcast({
       type: 'player_left',
       payload: {
@@ -977,26 +1000,24 @@ export class GameServer {
       }
     });
 
-    console.log(`Player ${targetPlayer.name} was kicked by ${requestingPlayer.name}`);
+    console.log(`[Session ${this.name}] Player ${targetPlayer.name} was kicked by ${requestingPlayer.name}`);
+    this.onSessionUpdate();
   }
 
   private handleSelectSlot(clientId: string, slot: number | null): void {
     const client = this.clients.get(clientId);
     if (!client) return;
 
-    // Can only select slots in lobby
     if (this.gameState.phase !== 'lobby') {
       this.sendError(client.ws, 'Cannot change slots during game', 'SLOT_ERROR');
       return;
     }
 
-    // Validate slot number
     if (slot !== null && (slot < 0 || slot >= this.gameState.settings.maxPlayers)) {
       this.sendError(client.ws, 'Invalid slot number', 'SLOT_ERROR');
       return;
     }
 
-    // Check if slot is already taken by another player
     if (slot !== null) {
       const slotTaken = this.gameState.players.some(
         p => p.slot === slot && p.id !== client.playerId
@@ -1007,7 +1028,6 @@ export class GameServer {
       }
     }
 
-    // Update player's slot
     this.gameState = {
       ...this.gameState,
       players: this.gameState.players.map(p =>
@@ -1015,13 +1035,12 @@ export class GameServer {
       )
     };
 
-    // Broadcast updated game state
     this.broadcast({
       type: 'game_state_update',
       payload: { gameState: toPublicGameState(this.gameState) }
     });
 
-    console.log(`Player ${client.playerName} selected slot ${slot}`);
+    console.log(`[Session ${this.name}] Player ${client.playerName} selected slot ${slot}`);
   }
 
   private sendPrivateInfo(playerId: string): void {
@@ -1049,15 +1068,20 @@ export class GameServer {
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(message));
-    }
+    this.sendToClient(ws, message);
   }
 
   private sendError(ws: WebSocket, message: string, code: string): void {
     this.send(ws, {
       type: 'error',
       payload: { message, code }
+    });
+  }
+
+  public broadcastGameState(): void {
+    this.broadcast({
+      type: 'game_state_update',
+      payload: { gameState: toPublicGameState(this.gameState) }
     });
   }
 
@@ -1075,58 +1099,7 @@ export class GameServer {
     }
   }
 
-  public async fetchPublicIp(): Promise<string> {
-    try {
-      const https = await import('https');
-      return new Promise((resolve, reject) => {
-        https.get('https://api.ipify.org', (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            this.publicIp = data.trim();
-            resolve(this.publicIp);
-          });
-        }).on('error', (err) => {
-          console.error('Failed to fetch public IP:', err);
-          this.publicIp = 'Unknown';
-          resolve('Unknown');
-        });
-      });
-    } catch (error) {
-      console.error('Failed to fetch public IP:', error);
-      this.publicIp = 'Unknown';
-      return 'Unknown';
-    }
-  }
-
-  public async start(): Promise<void> {
-    await this.fetchPublicIp();
-    
-    return new Promise((resolve) => {
-      this.server.listen(this.port, () => {
-        console.log('========================================');
-        console.log('       Perudo+ Game Server Started');
-        console.log('========================================');
-        console.log(`Local:     http://localhost:${this.port}`);
-        console.log(`Public IP: ${this.publicIp}`);
-        console.log(`Port:      ${this.port}`);
-        console.log('========================================');
-        console.log('Share the public IP and port with players');
-        console.log('to allow them to connect to your game.');
-        console.log('========================================');
-        resolve();
-      });
-    });
-  }
-
-  public stop(): void {
-    this.wss.close();
-    this.server.close();
-    console.log('Server stopped');
-  }
-
   private applyBlindSwap(playerId: string, myDieId: string, targetPlayerId: string): GameState {
-    // Find a random die from the target player
     const targetPlayer = this.gameState.players.find(p => p.id === targetPlayerId);
     if (!targetPlayer || targetPlayer.dice.length === 0) {
       throw new Error('Target player has no dice');
@@ -1142,11 +1115,9 @@ export class GameServer {
       throw new Error('Die not found');
     }
     
-    // Pick a random die from target
     const randomIndex = Math.floor(Math.random() * targetPlayer.dice.length);
     const targetDie = targetPlayer.dice[randomIndex];
     
-    // Swap the dice
     const updatedPlayers = this.gameState.players.map(p => {
       if (p.id === playerId) {
         return {
@@ -1166,15 +1137,12 @@ export class GameServer {
     return { ...this.gameState, players: updatedPlayers };
   }
 
-  public getGameState(): GameState {
-    return this.gameState;
+  public isEmpty(): boolean {
+    return this.gameState.players.every(p => !p.isConnected);
   }
 
-  public getPublicIp(): string {
-    return this.publicIp;
-  }
-
-  public getPort(): number {
-    return this.port;
+  public isStale(maxAgeMs: number = 3600000): boolean {
+    // Consider session stale if empty and older than maxAgeMs (default 1 hour)
+    return this.isEmpty() && (Date.now() - this.createdAt > maxAgeMs);
   }
 }

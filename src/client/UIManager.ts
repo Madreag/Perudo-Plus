@@ -10,7 +10,10 @@ import {
   Card, 
   DudoResult,
   JontiResult,
-  GamePhase 
+  GamePhase,
+  SessionInfo,
+  GameSettings,
+  GameMode
 } from '../shared/types';
 
 export class UIManager {
@@ -25,7 +28,19 @@ export class UIManager {
   private selectedDieIds: string[] = [];
   private wasMyTurn: boolean = false;
 
-  // Callbacks
+  // Volume callback
+  public onVolumeChange: ((volume: number) => void) | null = null;
+
+  // Session callbacks
+  public onConnect: ((playerName: string) => void) | null = null;
+  public onCreateSession: ((sessionName: string, hostName: string, settings?: Partial<GameSettings>) => void) | null = null;
+  public onJoinSession: ((sessionId: string, playerName: string) => void) | null = null;
+  public onLeaveSession: (() => void) | null = null;
+  public onRefreshSessions: (() => void) | null = null;
+  public onUpdateSessionSettings: ((settings: { mode?: string; maxPlayers?: number }) => void) | null = null;
+  public onDeleteSession: (() => void) | null = null;
+  
+  // Game callbacks
   public onStartGame: (() => void) | null = null;
   public onMakeBid: ((quantity: number, faceValue: number) => void) | null = null;
   public onCallDudo: (() => void) | null = null;
@@ -33,10 +48,11 @@ export class UIManager {
   public onPlayCard: ((cardId: string, targetPlayerId?: string, targetDieId?: string, additionalData?: any) => void) | null = null;
   public onReadyForRound: (() => void) | null = null;
   public onSendChat: ((message: string) => void) | null = null;
-  public onConnect: ((host: string, port: number, playerName: string) => void) | null = null;
   public onNewGame: (() => void) | null = null;
   public onPauseGame: (() => void) | null = null;
   public onResumeGame: (() => void) | null = null;
+  public onKickPlayer: ((playerId: string) => void) | null = null;
+  public onSelectSlot: ((slot: number | null) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -46,35 +62,161 @@ export class UIManager {
   private createUI(): void {
     this.container.innerHTML = `
       <div id="game-ui">
+        <!-- Volume Control (visible on all screens) -->
+        <div id="volume-control" class="volume-control">
+          <span class="volume-icon">🔊</span>
+          <input type="range" id="volume-slider" min="0" max="100" value="25" class="volume-slider">
+        </div>
+
         <!-- Connection Screen -->
         <div id="connection-screen" class="screen active">
           <div class="panel connection-panel">
             <h1>🎲 Perudo+</h1>
-            <div class="form-group">
-              <label for="server-host">Server IP:</label>
-              <input type="text" id="server-host" value="localhost" placeholder="IP Address">
-            </div>
-            <div class="form-group">
-              <label for="server-port">Port:</label>
-              <input type="number" id="server-port" value="3000" placeholder="Port">
-            </div>
+            <p class="connection-subtitle">Enter your name to join</p>
             <div class="form-group">
               <label for="player-name">Your Name:</label>
-              <input type="text" id="player-name" placeholder="Enter your name" maxlength="20">
+              <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" autofocus>
             </div>
-            <button id="connect-btn" class="btn primary">Connect</button>
+            <div class="btn-with-help">
+              <button id="connect-btn" class="btn primary">Join Game</button>
+              <span class="help-icon">?<span class="tooltip">Connect to the server and browse available game sessions</span></span>
+            </div>
             <p id="connection-error" class="error"></p>
+          </div>
+        </div>
+
+        <!-- Server Browser Screen -->
+        <div id="browser-screen" class="screen">
+          <div class="browser-container">
+            <div class="panel browser-panel">
+              <div class="browser-header">
+                <h2>🎮 Game Sessions</h2>
+                <div class="browser-actions">
+                  <div class="btn-with-help">
+                    <button id="refresh-sessions-btn" class="btn secondary">🔄 Refresh</button>
+                    <span class="help-icon">?<span class="tooltip">Refresh the list of available game sessions</span></span>
+                  </div>
+                  <div class="btn-with-help">
+                    <button id="create-session-btn" class="btn primary">+ Create Session</button>
+                    <span class="help-icon">?<span class="tooltip">Create a new game session that others can join. You'll be the host.</span></span>
+                  </div>
+                </div>
+              </div>
+              <div id="session-list" class="session-list">
+                <div class="session-empty">Loading sessions...</div>
+              </div>
+              <div class="browser-footer">
+                <span id="browser-player-name" class="browser-player-name"></span>
+                <button id="browser-disconnect-btn" class="btn secondary">Disconnect</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Session Modal -->
+        <div id="create-session-modal" class="modal" style="display: none;">
+          <div class="modal-content create-session-content">
+            <h3>Create New Session</h3>
+            <div class="form-group">
+              <label for="session-name">Session Name:</label>
+              <input type="text" id="session-name" placeholder="My Game Room" maxlength="30">
+            </div>
+            <div class="form-group">
+              <label for="session-mode">Game Mode:</label>
+              <select id="session-mode">
+                <option value="tactical">Tactical (Recommended)</option>
+                <option value="classic">Classic</option>
+                <option value="chaos">Chaos</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="session-max-players">Max Players:</label>
+              <select id="session-max-players">
+                <option value="2">2 Players</option>
+                <option value="3">3 Players</option>
+                <option value="4">4 Players</option>
+                <option value="5">5 Players</option>
+                <option value="6" selected>6 Players</option>
+              </select>
+            </div>
+            <div class="modal-buttons">
+              <button id="cancel-create-session" class="btn secondary">Cancel</button>
+              <button id="confirm-create-session" class="btn primary">Create</button>
+            </div>
           </div>
         </div>
 
         <!-- Lobby Screen -->
         <div id="lobby-screen" class="screen">
-          <div class="panel lobby-panel">
-            <h2>Game Lobby</h2>
-            <div id="server-info" class="server-info"></div>
-            <div id="player-list" class="player-list"></div>
-            <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
-            <p class="waiting-text">Waiting for host to start...</p>
+          <div class="lobby-container">
+            <!-- Left Column: Player Slots + Chat -->
+            <div class="lobby-left-column">
+              <div class="panel lobby-slots-panel">
+                <div class="lobby-header">
+                  <div class="btn-with-help">
+                    <button id="leave-session-btn" class="btn secondary">← Back</button>
+                    <span class="help-icon">?<span class="tooltip">Leave this session and return to the server browser</span></span>
+                  </div>
+                  <h2>Player Slots</h2>
+                </div>
+                <div id="slot-list" class="slot-list"></div>
+                <div class="lobby-actions">
+                  <div class="btn-with-help">
+                    <button id="start-game-btn" class="btn primary" style="display: none;">Start Game</button>
+                    <span class="help-icon" id="start-game-help" style="display: none;">?<span class="tooltip">Start the game once all players are ready. Requires at least 2 players.</span></span>
+                  </div>
+                  <p class="waiting-text">Waiting for host to start...</p>
+                </div>
+              </div>
+              <!-- Lobby Chat Panel (under player list) -->
+              <div class="panel lobby-chat-panel">
+                <div class="chat-header">
+                  <span class="chat-title">Chat</span>
+                </div>
+                <div id="lobby-chat-messages" class="chat-messages"></div>
+                <div class="chat-input-container">
+                  <input type="text" id="lobby-chat-input" class="chat-input" placeholder="Type a message..." maxlength="200">
+                  <button id="lobby-chat-send" class="chat-send-btn">Send</button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Right Panel: Server Info, Host Settings & Unassigned Players -->
+            <div class="lobby-right-panel">
+              <div class="panel lobby-info-panel">
+                <h3>Server Info</h3>
+                <div id="server-info" class="server-info"></div>
+              </div>
+              <!-- Host Settings Panel (only visible to host) -->
+              <div id="host-settings-panel" class="panel lobby-settings-panel" style="display: none;">
+                <h3>⚙️ Session Settings</h3>
+                <div class="settings-group">
+                  <label for="settings-game-mode">Game Mode:</label>
+                  <select id="settings-game-mode" class="settings-select">
+                    <option value="classic">Classic</option>
+                    <option value="tactical">Tactical</option>
+                    <option value="chaos">Chaos</option>
+                  </select>
+                </div>
+                <div class="settings-group">
+                  <label for="settings-max-players">Max Players:</label>
+                  <select id="settings-max-players" class="settings-select">
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                </div>
+                <div class="settings-actions">
+                  <button id="delete-session-btn" class="btn danger">🗑️ Delete Session</button>
+                </div>
+              </div>
+              <div class="panel lobby-unassigned-panel">
+                <h3>Unassigned Players</h3>
+                <div id="unassigned-list" class="unassigned-list"></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -85,7 +227,13 @@ export class UIManager {
             <div id="round-info" class="round-info">Round 1</div>
             <div id="current-bid" class="current-bid">No bid yet</div>
             <div id="turn-indicator" class="turn-indicator"></div>
-            <button id="pause-btn" class="btn pause-btn">⏸ Pause</button>
+            <div class="top-bar-right">
+              <div id="topbar-volume" class="topbar-volume">
+                <span class="volume-icon-small">🔉</span>
+                <input type="range" id="topbar-volume-slider" min="0" max="100" value="25" class="volume-slider-small">
+              </div>
+              <button id="pause-btn" class="btn pause-btn">⏸ Pause</button>
+            </div>
           </div>
 
           <!-- Players Panel -->
@@ -120,15 +268,28 @@ export class UIManager {
                 </select>
               </div>
               <div class="action-buttons">
-                <button id="bid-btn" class="btn primary">Make Bid</button>
-                <button id="dudo-btn" class="btn danger">Call Dudo!</button>
-                <button id="jonti-btn" class="btn warning">Call Jonti!</button>
+                <div class="btn-with-help">
+                  <button id="bid-btn" class="btn primary">Make Bid</button>
+                  <span class="help-icon">?<span class="tooltip">Make a bid on how many dice of a certain face value are on the table. Must be higher than the previous bid.</span></span>
+                </div>
+                <div class="btn-with-help">
+                  <button id="dudo-btn" class="btn danger">Call Dudo!</button>
+                  <span class="help-icon">?<span class="tooltip">Challenge the previous bid! If correct, they lose a die. If wrong, you lose a die.</span></span>
+                </div>
+                <div class="btn-with-help">
+                  <button id="jonti-btn" class="btn warning">Call Jonti!</button>
+                  <span class="help-icon">?<span class="tooltip">Claim the bid is EXACTLY correct! High risk, high reward. Win: previous bidder loses a die. Lose: you lose a die.</span></span>
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Chat Panel -->
           <div id="chat-panel" class="chat-panel">
+            <div class="chat-header">
+              <div class="chat-resize-handle" id="chat-resize-handle"></div>
+              <span class="chat-title">Chat</span>
+            </div>
             <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input-container">
               <input type="text" id="chat-input" placeholder="Type a message...">
@@ -237,10 +398,54 @@ export class UIManager {
   }
 
   private attachEventListeners(): void {
+    // Volume sliders (main and top-bar)
+    const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
+    const volumeIcon = document.querySelector('.volume-icon') as HTMLElement;
+    const topbarVolumeSlider = document.getElementById('topbar-volume-slider') as HTMLInputElement;
+    const topbarVolumeIcon = document.querySelector('.volume-icon-small') as HTMLElement;
+
+    const updateVolumeUI = (volume: number) => {
+      const iconText = volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
+      if (volumeIcon) volumeIcon.textContent = iconText;
+      if (topbarVolumeIcon) topbarVolumeIcon.textContent = iconText;
+      if (volumeSlider) volumeSlider.value = String(Math.round(volume * 100));
+      if (topbarVolumeSlider) topbarVolumeSlider.value = String(Math.round(volume * 100));
+    };
+
+    // Main volume slider
+    volumeSlider?.addEventListener('input', () => {
+      const volume = parseInt(volumeSlider.value, 10) / 100;
+      this.onVolumeChange?.(volume);
+      updateVolumeUI(volume);
+    });
+
+    // Top-bar volume slider
+    topbarVolumeSlider?.addEventListener('input', () => {
+      const volume = parseInt(topbarVolumeSlider.value, 10) / 100;
+      this.onVolumeChange?.(volume);
+      updateVolumeUI(volume);
+    });
+
+    // Click on volume icons to mute/unmute
+    const handleVolumeIconClick = () => {
+      const currentValue = parseInt(volumeSlider?.value || topbarVolumeSlider?.value || '25', 10);
+      if (currentValue > 0) {
+        if (volumeSlider) volumeSlider.dataset.previousVolume = String(currentValue);
+        this.onVolumeChange?.(0);
+        updateVolumeUI(0);
+      } else {
+        const prev = parseInt(volumeSlider?.dataset.previousVolume || '25', 10);
+        const volume = prev / 100;
+        this.onVolumeChange?.(volume);
+        updateVolumeUI(volume);
+      }
+    };
+
+    volumeIcon?.addEventListener('click', handleVolumeIconClick);
+    topbarVolumeIcon?.addEventListener('click', handleVolumeIconClick);
+
     // Connection
     document.getElementById('connect-btn')?.addEventListener('click', () => {
-      const host = (document.getElementById('server-host') as HTMLInputElement).value;
-      const port = parseInt((document.getElementById('server-port') as HTMLInputElement).value, 10);
       const name = (document.getElementById('player-name') as HTMLInputElement).value.trim();
       
       if (!name) {
@@ -248,7 +453,7 @@ export class UIManager {
         return;
       }
       
-      this.onConnect?.(host, port, name);
+      this.onConnect?.(name);
     });
 
     // Start game
@@ -317,12 +522,173 @@ export class UIManager {
       }
     });
 
+    // Lobby Chat
+    document.getElementById('lobby-chat-send')?.addEventListener('click', () => {
+      const input = document.getElementById('lobby-chat-input') as HTMLInputElement;
+      const message = input.value.trim();
+      if (message) {
+        this.onSendChat?.(message);
+        input.value = '';
+      }
+    });
+
+    document.getElementById('lobby-chat-input')?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('lobby-chat-send')?.click();
+      }
+    });
+
     // Enter key for connection
     document.getElementById('player-name')?.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
         document.getElementById('connect-btn')?.click();
       }
     });
+
+    // Server Browser - Refresh sessions
+    document.getElementById('refresh-sessions-btn')?.addEventListener('click', () => {
+      this.onRefreshSessions?.();
+    });
+
+    // Server Browser - Create session button
+    document.getElementById('create-session-btn')?.addEventListener('click', () => {
+      this.showModal('create-session-modal');
+      // Set default session name
+      const nameInput = document.getElementById('session-name') as HTMLInputElement;
+      const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value || 'Player';
+      if (nameInput) {
+        nameInput.value = `${playerName}'s Game`;
+      }
+    });
+
+    // Server Browser - Disconnect
+    document.getElementById('browser-disconnect-btn')?.addEventListener('click', () => {
+      this.showScreen('connection-screen');
+    });
+
+    // Create Session Modal - Cancel
+    document.getElementById('cancel-create-session')?.addEventListener('click', () => {
+      this.hideModal('create-session-modal');
+    });
+
+    // Create Session Modal - Confirm
+    document.getElementById('confirm-create-session')?.addEventListener('click', () => {
+      const sessionName = (document.getElementById('session-name') as HTMLInputElement).value.trim();
+      const mode = (document.getElementById('session-mode') as HTMLSelectElement).value as GameMode;
+      const maxPlayers = parseInt((document.getElementById('session-max-players') as HTMLSelectElement).value, 10);
+      const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Host';
+
+      if (!sessionName) {
+        alert('Please enter a session name');
+        return;
+      }
+
+      this.hideModal('create-session-modal');
+      this.onCreateSession?.(sessionName, playerName, { mode, maxPlayers });
+    });
+
+    // Leave Session (back to browser)
+    document.getElementById('leave-session-btn')?.addEventListener('click', () => {
+      this.onLeaveSession?.();
+    });
+
+    // Host Settings - Game Mode
+    document.getElementById('settings-game-mode')?.addEventListener('change', (e) => {
+      const mode = (e.target as HTMLSelectElement).value;
+      this.onUpdateSessionSettings?.({ mode });
+    });
+
+    // Host Settings - Max Players
+    document.getElementById('settings-max-players')?.addEventListener('change', (e) => {
+      const maxPlayers = parseInt((e.target as HTMLSelectElement).value, 10);
+      this.onUpdateSessionSettings?.({ maxPlayers });
+    });
+
+    // Host Settings - Delete Session
+    document.getElementById('delete-session-btn')?.addEventListener('click', () => {
+      if (confirm('Are you sure you want to delete this session? All players will be returned to the server browser.')) {
+        this.onDeleteSession?.();
+      }
+    });
+
+    // Chat panel resize functionality
+    this.setupChatResize();
+  }
+
+  private setupChatResize(): void {
+    const chatPanel = document.getElementById('chat-panel');
+    const resizeHandle = document.getElementById('chat-resize-handle');
+
+    if (!chatPanel || !resizeHandle) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+
+    // Function to update other panels based on chat panel size
+    const updatePanelPositions = (chatWidth: number, chatHeight: number) => {
+      const privatePanel = document.getElementById('private-panel');
+      const actionPanel = document.getElementById('action-panel');
+
+      // Calculate the right offset for private and action panels
+      // Chat panel is at right: 10px, so other panels need right: chatWidth + 20px (10px gap)
+      const rightOffset = chatWidth + 20;
+
+      if (privatePanel) {
+        privatePanel.style.right = `${rightOffset}px`;
+      }
+
+      if (actionPanel) {
+        actionPanel.style.right = `${rightOffset}px`;
+      }
+
+    };
+
+
+    const onMouseDown = (e: MouseEvent) => {
+      isResizing = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startWidth = chatPanel.offsetWidth;
+      startHeight = chatPanel.offsetHeight;
+
+      document.body.style.cursor = 'nw-resize';
+      document.body.style.userSelect = 'none';
+
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+
+      // Calculate the difference (inverted because we're resizing from top-left)
+      const deltaX = startX - e.clientX;
+      const deltaY = startY - e.clientY;
+
+      // Calculate new dimensions
+      const newWidth = Math.min(Math.max(startWidth + deltaX, 200), 600);
+      const newHeight = Math.min(Math.max(startHeight + deltaY, 150), window.innerHeight * 0.8);
+
+      chatPanel.style.width = `${newWidth}px`;
+      chatPanel.style.height = `${newHeight}px`;
+
+      // Update other panels to avoid overlap
+      updatePanelPositions(newWidth, newHeight);
+    };
+
+    const onMouseUp = () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    resizeHandle.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   }
 
   private injectStyles(): void {
@@ -341,6 +707,132 @@ export class UIManager {
 
       #game-ui * {
         pointer-events: auto;
+      }
+
+      /* Volume Control - hidden on game screen since top bar has its own */
+      .volume-control {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(30, 30, 50, 0.9);
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1001;
+      }
+
+
+      /* Help Tooltips */
+      .help-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        font-size: 11px;
+        font-weight: bold;
+        color: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        cursor: help;
+        margin-left: 6px;
+        position: relative;
+        user-select: none;
+        transition: all 0.2s;
+      }
+
+      .help-icon:hover {
+        color: #fff;
+        background: rgba(78, 205, 196, 0.3);
+        border-color: #4ecdc4;
+      }
+
+      .help-icon .tooltip {
+        visibility: hidden;
+        opacity: 0;
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(20, 20, 40, 0.98);
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: normal;
+        line-height: 1.4;
+        width: 220px;
+        text-align: center;
+        border: 1px solid rgba(78, 205, 196, 0.5);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        z-index: 1002;
+        transition: opacity 0.2s, visibility 0.2s;
+      }
+
+      .help-icon .tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(20, 20, 40, 0.98);
+      }
+
+      .help-icon:hover .tooltip {
+        visibility: visible;
+        opacity: 1;
+      }
+
+      .btn-with-help {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .volume-icon {
+        font-size: 1.2em;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .volume-slider {
+        width: 80px;
+        height: 6px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+        outline: none;
+        cursor: pointer;
+      }
+
+      .volume-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+
+      .volume-slider::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+      }
+
+      .volume-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
       }
 
       .screen {
@@ -372,8 +864,14 @@ export class UIManager {
       }
 
       .connection-panel h1 {
-        margin-bottom: 24px;
+        margin-bottom: 8px;
         font-size: 2.5em;
+      }
+
+      .connection-subtitle {
+        color: rgba(255, 255, 255, 0.7);
+        margin-bottom: 24px;
+        font-size: 1.1em;
       }
 
       .form-group {
@@ -441,40 +939,439 @@ export class UIManager {
         margin-top: 12px;
       }
 
-      .lobby-panel {
-        width: 400px;
+      /* Server Browser Styles */
+      .browser-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 100vh;
+        padding: 20px;
+      }
+
+      .browser-panel {
+        width: 100%;
+        max-width: 900px;
+        height: 80vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .browser-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .browser-header h2 {
+        margin: 0;
+      }
+
+      .browser-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .session-list {
+        flex: 1;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .session-empty {
         text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+        padding: 40px;
+        font-style: italic;
+      }
+
+      .session-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: all 0.2s ease;
+      }
+
+      .session-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(78, 205, 196, 0.5);
+      }
+
+      .session-item.previous-session {
+        border-color: #f39c12;
+        background: rgba(243, 156, 18, 0.1);
+      }
+
+      .session-item.previous-session::before {
+        content: '⚠️ Rejoin: ';
+        color: #f39c12;
+        font-weight: bold;
+      }
+
+      .session-info {
+        flex: 1;
+      }
+
+      .session-name {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #4ecdc4;
+        margin-bottom: 4px;
+      }
+
+      .session-details {
+        font-size: 0.9em;
+        color: rgba(255, 255, 255, 0.7);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .session-host {
+        color: #ffe66d;
+      }
+
+      .session-players {
+        color: #2ecc71;
+      }
+
+      .session-mode {
+        color: #9b59b6;
+        text-transform: capitalize;
+      }
+
+      .session-phase {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+
+      .session-phase.lobby {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+      }
+
+      .session-phase.playing {
+        background: rgba(241, 196, 15, 0.2);
+        color: #f1c40f;
+      }
+
+      .session-phase.paused {
+        background: rgba(155, 89, 182, 0.2);
+        color: #9b59b6;
+      }
+
+      .session-join-btn {
+        padding: 10px 24px;
+      }
+
+      .browser-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .browser-player-name {
+        color: #4ecdc4;
+        font-weight: bold;
+      }
+
+      .create-session-content {
+        max-width: 400px;
+      }
+
+      .create-session-content h3 {
+        margin-bottom: 20px;
+        text-align: center;
+      }
+
+      /* WC3-Style Lobby Layout */
+      .lobby-container {
+        display: flex;
+        gap: 20px;
+        width: 100%;
+        max-width: 1000px;
+        height: 85vh;
+        padding: 20px;
+      }
+
+      .lobby-left-column {
+        flex: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .lobby-slots-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .lobby-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .lobby-header h2 {
+        flex: 1;
+        text-align: center;
+        margin: 0;
+        margin-right: 80px; /* Balance for back button width */
+      }
+
+      .lobby-slots-panel h2 {
+        margin-bottom: 16px;
+        text-align: center;
+      }
+
+      .lobby-right-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 280px;
+        max-width: 300px;
+      }
+
+      .lobby-info-panel {
+        padding: 12px;
+      }
+
+      .lobby-info-panel h3 {
+        margin-bottom: 8px;
+      }
+
+      .lobby-unassigned-panel {
+        padding: 12px;
+        flex-shrink: 0;
+      }
+
+      .lobby-unassigned-panel h3 {
+        margin-bottom: 8px;
+      }
+
+      .lobby-settings-panel {
+        padding: 12px;
+      }
+
+      .lobby-settings-panel h3 {
+        margin-bottom: 12px;
+      }
+
+      .settings-group {
+        margin-bottom: 12px;
+      }
+
+      .settings-group label {
+        display: block;
+        margin-bottom: 4px;
+        color: #aaa;
+        font-size: 0.9em;
+      }
+
+      .settings-select {
+        width: 100%;
+        padding: 8px 12px;
+        background: #2a2a4a;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 1em;
+        cursor: pointer;
+      }
+
+      .settings-select option {
+        background: #2a2a4a;
+        color: #fff;
+        padding: 8px;
+      }
+
+      .settings-select:hover {
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+
+      .settings-select:focus {
+        outline: none;
+        border-color: #4ecdc4;
+      }
+
+      .settings-actions {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .settings-actions .btn {
+        width: 100%;
       }
 
       .server-info {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;
         border-radius: 8px;
-        margin-bottom: 16px;
+        font-family: monospace;
+        font-size: 0.9em;
+      }
+
+      /* Slot List */
+      .slot-list {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .slot-row {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .slot-row.occupied {
+        background: rgba(46, 204, 113, 0.15);
+        border-color: rgba(46, 204, 113, 0.3);
+      }
+
+      .slot-row.empty {
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .slot-number {
+        font-weight: bold;
+        width: 60px;
+        color: #888;
+      }
+
+      .slot-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .slot-player-name {
+        font-weight: bold;
+        color: #2ecc71;
+      }
+
+      .slot-player-name.host::after {
+        content: ' 👑';
+      }
+
+      .slot-player-ip {
+        font-size: 0.85em;
+        color: #888;
         font-family: monospace;
       }
 
-      .player-list {
-        text-align: left;
-        margin-bottom: 16px;
+      .slot-empty-text {
+        color: #666;
+        font-style: italic;
       }
 
-      .player-item {
-        padding: 8px 12px;
-        background: rgba(255, 255, 255, 0.1);
+      .slot-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .slot-select {
+        padding: 4px 8px;
+        background: rgba(52, 152, 219, 0.3);
+        border: 1px solid rgba(52, 152, 219, 0.5);
         border-radius: 4px;
-        margin-bottom: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.85em;
+      }
+
+      .slot-select:hover {
+        background: rgba(52, 152, 219, 0.5);
+      }
+
+      .slot-select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Unassigned Players List */
+      .unassigned-list {
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .unassigned-item {
         display: flex;
         justify-content: space-between;
+        align-items: center;
+        padding: 6px 10px;
+        background: rgba(231, 76, 60, 0.15);
+        border-radius: 4px;
+        margin-bottom: 4px;
+        border: 1px solid rgba(231, 76, 60, 0.3);
       }
 
-      .player-item.host::after {
-        content: '👑';
+      .unassigned-name {
+        color: #e74c3c;
+      }
+
+      .unassigned-ip {
+        font-size: 0.8em;
+        color: #888;
+        font-family: monospace;
+      }
+
+      .kick-btn {
+        padding: 4px 8px;
+        background: #c0392b;
+        border: none;
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        font-size: 0.8em;
+      }
+
+      .kick-btn:hover {
+        background: #e74c3c;
+      }
+
+      .lobby-actions {
+        margin-top: 16px;
+        text-align: center;
       }
 
       .waiting-text {
         color: #aaa;
         font-style: italic;
+      }
+
+      .lobby-chat-panel {
+        height: 450px;
+        flex-shrink: 0;
+        background: rgba(30, 30, 50, 0.9);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       /* Game Screen */
@@ -498,6 +1395,7 @@ export class UIManager {
         justify-content: space-between;
         padding: 0 24px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 1001;
       }
 
       .round-info {
@@ -513,6 +1411,56 @@ export class UIManager {
       .turn-indicator {
         font-size: 1.1em;
         color: #ffe66d;
+      }
+
+      .top-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .topbar-volume {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        position: relative;
+        z-index: 1001;
+      }
+
+      .volume-icon-small {
+        font-size: 1em;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .volume-slider-small {
+        width: 60px;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        outline: none;
+        cursor: pointer;
+      }
+
+      .volume-slider-small::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 12px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+
+      .volume-slider-small::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        background: #4ecdc4;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
       }
 
       .pause-btn {
@@ -551,10 +1499,12 @@ export class UIManager {
       }
 
       .players-panel {
+        transition: max-height 0.1s ease-out, right 0.1s ease-out, width 0.1s ease-out;
+        overflow-y: auto;
         position: absolute;
         top: 70px;
         right: 10px;
-        width: 200px;
+        width: 300px;
         background: rgba(30, 30, 50, 0.8);
         border-radius: 12px;
         padding: 16px;
@@ -586,10 +1536,11 @@ export class UIManager {
       }
 
       .private-panel {
+        transition: right 0.1s ease-out;
         position: absolute;
         bottom: 80px;
         left: 10px;
-        right: 220px;
+        right: 620px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -670,10 +1621,11 @@ export class UIManager {
       }
 
       .action-panel {
+        transition: right 0.1s ease-out;
         position: absolute;
         bottom: 10px;
         left: 10px;
-        right: 220px;
+        right: 620px;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         padding: 16px;
@@ -710,13 +1662,69 @@ export class UIManager {
         position: absolute;
         bottom: 10px;
         right: 10px;
-        width: 200px;
-        height: 300px;
+        width: 600px;
+        height: 350px;
+        min-width: 200px;
+        min-height: 150px;
+        max-width: 1600px;
+        max-height: 80vh;
         background: rgba(30, 30, 50, 0.9);
         border-radius: 12px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        resize: both;
+      }
+
+      .chat-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        cursor: default;
+        flex-shrink: 0;
+      }
+
+      .chat-title {
+        font-size: 0.9em;
+        font-weight: bold;
+        color: #4a90d9;
+      }
+
+      .chat-resize-handle {
+        width: 16px;
+        height: 16px;
+        cursor: nw-resize;
+        margin-right: 8px;
+        position: relative;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+      }
+
+      .chat-resize-handle:hover {
+        opacity: 1;
+      }
+
+      .chat-resize-handle::before,
+      .chat-resize-handle::after {
+        content: '';
+        position: absolute;
+        background: #4a90d9;
+      }
+
+      .chat-resize-handle::before {
+        width: 10px;
+        height: 2px;
+        top: 7px;
+        left: 0;
+      }
+
+      .chat-resize-handle::after {
+        width: 2px;
+        height: 10px;
+        top: 0;
+        left: 7px;
       }
 
       .chat-messages {
@@ -1074,6 +2082,46 @@ export class UIManager {
         color: #9b59b6;
       }
 
+      /* Info notification variant (blue) */
+      .card-notification.info {
+        border-color: #3498db;
+        background: rgba(30, 40, 55, 0.95);
+      }
+
+      .card-notification.info .card-notification-icon {
+        color: #3498db;
+      }
+
+      /* Success notification variant (green) */
+      .card-notification.success {
+        border-color: #2ecc71;
+        background: rgba(30, 50, 40, 0.95);
+      }
+
+      .card-notification.success .card-notification-icon {
+        color: #2ecc71;
+      }
+
+      /* Danger notification variant (red) */
+      .card-notification.danger {
+        border-color: #e74c3c;
+        background: rgba(50, 30, 30, 0.95);
+      }
+
+      .card-notification.danger .card-notification-icon {
+        color: #e74c3c;
+      }
+
+      /* Turn notification variant (yellow) */
+      .card-notification.turn {
+        border-color: #f1c40f;
+        background: rgba(50, 45, 25, 0.95);
+      }
+
+      .card-notification.turn .card-notification-icon {
+        color: #f1c40f;
+      }
+
       /* Active effects indicator */
       .active-effects {
         display: flex;
@@ -1089,6 +2137,346 @@ export class UIManager {
         background: rgba(155, 89, 182, 0.3);
         color: #bb8fce;
       }
+
+      /* ============================================ */
+      /* Mobile Responsive Styles */
+      /* ============================================ */
+      @media (max-width: 768px) {
+        /* Connection Screen */
+        .connection-panel {
+          width: 90%;
+          max-width: 350px;
+          padding: 20px;
+        }
+
+        .connection-panel h1 {
+          font-size: 1.8em;
+        }
+
+        /* Lobby Screen */
+        .lobby-container {
+          flex-direction: column;
+          height: auto;
+          max-height: 95vh;
+          padding: 10px;
+          overflow-y: auto;
+        }
+
+        .lobby-left-column {
+          width: 100%;
+          gap: 10px;
+        }
+
+        .lobby-slots-panel {
+          min-height: auto;
+          padding: 16px;
+        }
+
+        .lobby-slots-panel h2 {
+          font-size: 1.3em;
+          margin-bottom: 10px;
+        }
+
+        .slot-list {
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .slot-row {
+          padding: 8px;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .slot-number {
+          width: 50px;
+          font-size: 0.9em;
+        }
+
+        .slot-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .slot-player-name {
+          font-size: 0.9em;
+        }
+
+        .slot-player-ip {
+          font-size: 0.75em;
+        }
+
+        .lobby-right-panel {
+          width: 100%;
+          max-width: none;
+          gap: 10px;
+        }
+
+        .lobby-info-panel,
+        .lobby-unassigned-panel {
+          padding: 10px;
+        }
+
+        .lobby-chat-panel {
+          position: relative !important;
+          width: 100% !important;
+          height: 250px !important;
+          max-width: none !important;
+          display: flex !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
+          resize: none !important;
+        }
+
+        .lobby-chat-panel .chat-header {
+          display: none !important; /* Hide chat banner on mobile to save space */
+        }
+
+        .lobby-chat-panel .chat-messages {
+          flex: 1 1 auto !important;
+          min-height: 0 !important;
+          overflow-y: auto !important;
+          padding: 12px !important;
+        }
+
+        .lobby-chat-panel .chat-input-container {
+          flex: 0 0 auto !important;
+          display: flex !important;
+          padding: 8px !important;
+          border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .unassigned-list {
+          max-height: 100px;
+        }
+
+        /* Fix iOS auto-zoom on input focus - ensure 16px minimum */
+        input, select, textarea {
+          font-size: 16px !important;
+        }
+
+        .chat-input {
+          font-size: 16px !important;
+        }
+
+        .form-group input {
+          font-size: 16px !important;
+        }
+
+        .bid-inputs input,
+        .bid-inputs select {
+          font-size: 16px !important;
+        }
+
+        /* Game Screen */
+        #game-screen {
+          overflow-y: auto;
+        }
+
+        .top-bar {
+          position: relative !important;
+          height: auto !important;
+          flex-wrap: wrap;
+          padding: 8px;
+          gap: 8px;
+          z-index: 100;
+        }
+
+        .top-bar > div {
+          font-size: 0.85em;
+        }
+
+        .pause-btn {
+          padding: 6px 10px;
+          font-size: 0.85em;
+        }
+
+        .players-panel {
+          position: relative;
+          width: 100% !important;
+          max-width: none !important;
+          top: auto;
+          left: auto;
+          max-height: none !important;
+          margin-bottom: 10px;
+          padding: 12px;
+        }
+
+        .player-status {
+          padding: 8px;
+          font-size: 0.9em;
+        }
+
+        .private-panel {
+          position: relative;
+          bottom: auto;
+          left: auto;
+          right: auto !important;
+          width: 100%;
+          flex-direction: column;
+          padding: 12px;
+          margin-bottom: 10px;
+          gap: 16px;
+        }
+
+        .dice-section h3,
+        .cards-section h3 {
+          font-size: 1em;
+          margin-bottom: 8px;
+        }
+
+        .die-display {
+          width: 40px;
+          height: 40px;
+          font-size: 1.2em;
+        }
+
+        .cards-container {
+          flex-wrap: wrap;
+        }
+
+        .card-display {
+          width: 100px;
+          min-height: 80px;
+          padding: 8px;
+        }
+
+        .card-name {
+          font-size: 0.8em;
+        }
+
+        .card-desc {
+          font-size: 0.65em;
+        }
+
+        .action-panel {
+          position: relative;
+          bottom: auto;
+          left: auto;
+          right: auto !important;
+          width: 100%;
+          padding: 12px;
+          margin-bottom: 10px;
+        }
+
+        .bid-controls {
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .bid-inputs {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .bid-inputs input,
+        .bid-inputs select {
+          width: 60px;
+          padding: 6px 8px;
+          font-size: 14px;
+        }
+
+        .action-buttons {
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+
+        .action-buttons .btn {
+          padding: 10px 16px;
+          font-size: 14px;
+        }
+
+        .chat-panel {
+          position: relative;
+          bottom: auto;
+          right: auto;
+          width: 100% !important;
+          height: 250px !important;
+          max-width: none !important;
+          resize: none;
+        }
+
+        .chat-panel .chat-header {
+          display: none !important; /* Hide chat header on mobile to match lobby */
+        }
+
+        .chat-panel .chat-messages {
+          padding-top: 12px !important; /* Extra padding since header is hidden */
+        }
+
+        /* Modal adjustments */
+        .modal-content {
+          width: 90%;
+          max-width: 400px;
+          padding: 20px;
+          max-height: 80vh;
+          overflow-y: auto;
+        }
+
+        .target-options {
+          max-height: 200px;
+        }
+
+        .target-die {
+          width: 35px;
+          height: 35px;
+          font-size: 1em;
+        }
+
+        .face-value-btn {
+          width: 40px;
+          height: 40px;
+          font-size: 1.2em;
+        }
+
+        /* Card notification */
+        .card-notification {
+          width: 90%;
+          max-width: 300px;
+          padding: 12px 16px;
+        }
+      }
+
+      /* Extra small screens */
+      @media (max-width: 480px) {
+        .connection-panel h1 {
+          font-size: 1.5em;
+        }
+
+        .btn {
+          padding: 10px 16px;
+          font-size: 14px;
+        }
+
+        .slot-row {
+          padding: 6px;
+        }
+
+        .slot-number {
+          width: 40px;
+          font-size: 0.8em;
+        }
+
+        .lobby-chat-panel {
+          height: 250px !important;
+        }
+
+        .chat-panel {
+          height: 250px !important;
+        }
+
+        .die-display {
+          width: 35px;
+          height: 35px;
+          font-size: 1em;
+        }
+
+        .card-display {
+          width: 85px;
+          min-height: 70px;
+          padding: 6px;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1100,10 +2488,31 @@ export class UIManager {
   public setIsHost(isHost: boolean): void {
     this.isHost = isHost;
     const startBtn = document.getElementById('start-game-btn');
+    const startBtnHelp = document.getElementById('start-game-help');
     const waitingText = document.querySelector('.waiting-text') as HTMLElement;
+    const hostSettingsPanel = document.getElementById('host-settings-panel');
+    
     if (startBtn && waitingText) {
       startBtn.style.display = isHost ? 'block' : 'none';
+      if (startBtnHelp) startBtnHelp.style.display = isHost ? 'inline-flex' : 'none';
       waitingText.style.display = isHost ? 'none' : 'block';
+    }
+    
+    // Show/hide host settings panel
+    if (hostSettingsPanel) {
+      hostSettingsPanel.style.display = isHost ? 'block' : 'none';
+    }
+  }
+
+  public updateSessionSettings(settings: { mode: string; maxPlayers: number }): void {
+    const gameModeSelect = document.getElementById('settings-game-mode') as HTMLSelectElement;
+    const maxPlayersSelect = document.getElementById('settings-max-players') as HTMLSelectElement;
+    
+    if (gameModeSelect && settings.mode) {
+      gameModeSelect.value = settings.mode;
+    }
+    if (maxPlayersSelect && settings.maxPlayers) {
+      maxPlayersSelect.value = String(settings.maxPlayers);
     }
   }
 
@@ -1112,6 +2521,12 @@ export class UIManager {
       screen.classList.remove('active');
     });
     document.getElementById(screenId)?.classList.add('active');
+    
+    // Hide main volume control on game screen (it has its own in top bar)
+    const volumeControl = document.getElementById('volume-control');
+    if (volumeControl) {
+      volumeControl.style.display = screenId === 'game-screen' ? 'none' : 'flex';
+    }
   }
 
   public showConnectionError(message: string): void {
@@ -1129,6 +2544,75 @@ export class UIManager {
         <div>Port: <strong>${port}</strong></div>
       `;
     }
+  }
+
+  public setBrowserPlayerName(playerName: string): void {
+    const nameEl = document.getElementById('browser-player-name');
+    if (nameEl) {
+      nameEl.textContent = `Playing as: ${playerName}`;
+    }
+  }
+
+  public updateSessionList(sessions: SessionInfo[], previousSessionId: string | null): void {
+    const listEl = document.getElementById('session-list');
+    if (!listEl) return;
+
+    if (sessions.length === 0) {
+      listEl.innerHTML = '<div class="session-empty">No active sessions. Create one to get started!</div>';
+      return;
+    }
+
+    // Sort sessions - previous session first, then by creation time
+    const sortedSessions = [...sessions].sort((a, b) => {
+      if (a.id === previousSessionId) return -1;
+      if (b.id === previousSessionId) return 1;
+      return b.createdAt - a.createdAt;
+    });
+
+    listEl.innerHTML = sortedSessions.map(session => {
+      const isPrevious = session.id === previousSessionId;
+      const phaseClass = session.phase === 'lobby' ? 'lobby' : 
+                         session.phase === 'paused' ? 'paused' : 'playing';
+      const phaseText = session.phase === 'lobby' ? 'In Lobby' :
+                        session.phase === 'paused' ? 'Paused' : 'In Progress';
+      const isFull = session.playerCount >= session.maxPlayers;
+
+      return `
+        <div class="session-item ${isPrevious ? 'previous-session' : ''}" data-session-id="${session.id}">
+          <div class="session-info">
+            <div class="session-name">${this.escapeHtml(session.name)}</div>
+            <div class="session-details">
+              <span class="session-host">👑 ${this.escapeHtml(session.hostName)}</span>
+              <span class="session-players">👥 ${session.playerCount}/${session.maxPlayers}</span>
+              <span class="session-mode">${session.mode}</span>
+              <span class="session-phase ${phaseClass}">${phaseText}</span>
+            </div>
+          </div>
+          <button class="btn ${isPrevious ? 'warning' : 'primary'} session-join-btn" 
+                  data-session-id="${session.id}"
+                  ${isFull && !isPrevious ? 'disabled' : ''}>
+            ${isPrevious ? 'Rejoin' : isFull ? 'Full' : 'Join'}
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    // Attach click handlers to join buttons
+    listEl.querySelectorAll('.session-join-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const sessionId = (e.target as HTMLElement).dataset.sessionId;
+        if (sessionId) {
+          const playerName = (document.getElementById('player-name') as HTMLInputElement)?.value.trim() || 'Player';
+          this.onJoinSession?.(sessionId, playerName);
+        }
+      });
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   public updateGameState(state: PublicGameState): void {
@@ -1153,15 +2637,103 @@ export class UIManager {
   private updatePlayersList(): void {
     if (!this.gameState) return;
 
-    // Lobby player list
-    const lobbyList = document.getElementById('player-list');
-    if (lobbyList && this.gameState.phase === 'lobby') {
-      lobbyList.innerHTML = this.gameState.players.map(p => `
-        <div class="player-item ${p.isHost ? 'host' : ''}">
-          <span>${p.name}</span>
-          <span>${p.isConnected ? '🟢' : '🔴'}</span>
-        </div>
-      `).join('');
+    // WC3-style Lobby slot list
+    const slotList = document.getElementById('slot-list');
+    const unassignedList = document.getElementById('unassigned-list');
+    
+    if (slotList && this.gameState.phase === 'lobby') {
+      const maxSlots = this.gameState.settings.maxPlayers;
+      const myPlayer = this.gameState.players.find(p => p.id === this.playerId);
+      const mySlot = myPlayer?.slot;
+      
+      // Render slot rows
+      let slotsHtml = '';
+      for (let i = 0; i < maxSlots; i++) {
+        const playerInSlot = this.gameState.players.find(p => p.slot === i);
+        const isOccupied = !!playerInSlot;
+        const isMySlot = mySlot === i;
+        
+        slotsHtml += `
+          <div class="slot-row ${isOccupied ? 'occupied' : 'empty'}">
+            <div class="slot-number">Slot ${i + 1}</div>
+            <div class="slot-content">
+              ${isOccupied ? `
+                <span class="slot-player-name ${playerInSlot.isHost ? 'host' : ''}">${playerInSlot.name}</span>
+                <span class="slot-player-ip">(${playerInSlot.ip})</span>
+                <span>${playerInSlot.isConnected ? '🟢' : '🔴'}</span>
+              ` : `
+                <span class="slot-empty-text">Open</span>
+              `}
+            </div>
+            <div class="slot-actions">
+              ${!isOccupied && mySlot === null ? `
+                <button class="slot-select" data-slot="${i}">Join</button>
+              ` : ''}
+              ${isMySlot ? `
+                <button class="slot-select" data-slot="leave">Leave</button>
+              ` : ''}
+              ${this.isHost && isOccupied && playerInSlot.id !== this.playerId ? `
+                <button class="kick-btn" data-player-id="${playerInSlot.id}">Kick</button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }
+      slotList.innerHTML = slotsHtml;
+
+      // Add slot selection event listeners
+      slotList.querySelectorAll('.slot-select').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const slotStr = (e.target as HTMLElement).getAttribute('data-slot');
+          if (slotStr === 'leave') {
+            this.onSelectSlot?.(null);
+          } else if (slotStr !== null) {
+            this.onSelectSlot?.(parseInt(slotStr, 10));
+          }
+        });
+      });
+
+      // Add kick button event listeners
+      slotList.querySelectorAll('.kick-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const playerId = (e.target as HTMLElement).getAttribute('data-player-id');
+          if (playerId) {
+            this.onKickPlayer?.(playerId);
+          }
+        });
+      });
+    }
+
+    // Render unassigned players
+    if (unassignedList && this.gameState.phase === 'lobby') {
+      const unassignedPlayers = this.gameState.players.filter(p => p.slot === null);
+      
+      if (unassignedPlayers.length === 0) {
+        unassignedList.innerHTML = '<div class="slot-empty-text">No unassigned players</div>';
+      } else {
+        unassignedList.innerHTML = unassignedPlayers.map(p => `
+          <div class="unassigned-item">
+            <div>
+              <span class="unassigned-name">${p.name}${p.isHost ? ' 👑' : ''}</span>
+              <span class="unassigned-ip">(${p.ip})</span>
+            </div>
+            <div>
+              <span>${p.isConnected ? '🟢' : '🔴'}</span>
+              ${this.isHost && p.id !== this.playerId ? `<button class="kick-btn" data-player-id="${p.id}">Kick</button>` : ''}
+            </div>
+          </div>
+        `).join('');
+
+        // Add kick button event listeners for unassigned list
+        unassignedList.querySelectorAll('.kick-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const playerId = (e.target as HTMLElement).getAttribute('data-player-id');
+            if (playerId) {
+              this.onKickPlayer?.(playerId);
+            }
+          });
+        });
+      }
     }
 
     // Game player panel
@@ -1574,25 +3146,37 @@ export class UIManager {
   }
 
   public addChatMessage(playerName: string, message: string): void {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
+    // Add to both game chat and lobby chat
+    const containers = [
+      document.getElementById('chat-messages'),
+      document.getElementById('lobby-chat-messages')
+    ];
 
-    const msgEl = document.createElement('div');
-    msgEl.className = 'chat-message';
-    msgEl.innerHTML = `<span class="sender">${playerName}:</span> ${message}`;
-    container.appendChild(msgEl);
-    container.scrollTop = container.scrollHeight;
+    for (const container of containers) {
+      if (!container) continue;
+      const msgEl = document.createElement('div');
+      msgEl.className = 'chat-message';
+      msgEl.innerHTML = `<span class="sender">${playerName}:</span> ${message}`;
+      container.appendChild(msgEl);
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   public addSystemMessage(message: string, isCardPlay: boolean = false): void {
-    const container = document.getElementById('chat-messages');
-    if (!container) return;
+    // Add to both game chat and lobby chat
+    const containers = [
+      document.getElementById('chat-messages'),
+      document.getElementById('lobby-chat-messages')
+    ];
 
-    const msgEl = document.createElement('div');
-    msgEl.className = `chat-message system ${isCardPlay ? 'card-play' : ''}`;
-    msgEl.innerHTML = `<em>${message}</em>`;
-    container.appendChild(msgEl);
-    container.scrollTop = container.scrollHeight;
+    for (const container of containers) {
+      if (!container) continue;
+      const msgEl = document.createElement('div');
+      msgEl.className = `chat-message system ${isCardPlay ? 'card-play' : ''}`;
+      msgEl.innerHTML = `<em>${message}</em>`;
+      container.appendChild(msgEl);
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   public showCardPlayedNotification(playerName: string, cardName: string, cardType: string, isOwnCard: boolean): void {
@@ -1603,7 +3187,7 @@ export class UIManager {
     const icon = this.getCardIcon(cardType);
     
     // Show prominent notification
-    this.showTemporaryNotification(
+    this.showNotification(
       icon,
       `<span class="card-notification-player">${playerName}</span> played <span class="card-notification-card">${cardName}</span>`,
       'card-play'
@@ -1634,11 +3218,19 @@ export class UIManager {
 
 
   private showModal(modalId: string): void {
-    document.getElementById(modalId)?.classList.add('active');
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+    }
   }
 
   private hideModal(modalId: string): void {
-    document.getElementById(modalId)?.classList.remove('active');
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.style.display = 'none';
+      modal.classList.remove('active');
+    }
   }
 
   public showPausedOverlay(): void {
@@ -1721,10 +3313,10 @@ export class UIManager {
         message = `"${card.name}" cannot be played right now.`;
     }
     
-    this.showTemporaryNotification('⚠️', message, 'warning');
+    this.showNotification('⚠️', message, 'warning');
   }
 
-  private showTemporaryNotification(icon: string, message: string, type: string = 'info'): void {
+  public showNotification(icon: string, message: string, type: string = 'info'): void {
     // Remove any existing notification
     const existing = document.querySelector('.card-notification');
     if (existing) existing.remove();

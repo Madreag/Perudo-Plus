@@ -55,9 +55,63 @@ export class GameClient {
       } else if (state === 'disconnected') {
         this.ui.showScreen('connection-screen');
         this.ui.showConnectionError('Disconnected from server');
+        // Reset previous phase so reconnection triggers proper screen transition
+        this.previousPhase = null;
         // Go back to lobby music when disconnected
         this.music.toLobby();
       }
+    });
+
+    // Session management events
+    this.network.on('onRegistered', (identityId, playerName, previousSessionId) => {
+      console.log('Registered with identity:', identityId, 'previousSession:', previousSessionId);
+      this.ui.setBrowserPlayerName(playerName);
+      // Request session list
+      this.network.listSessions();
+    });
+
+    this.network.on('onSessionsList', (sessions, previousSessionId) => {
+      console.log('Sessions list:', sessions.length, 'sessions');
+      this.ui.updateSessionList(sessions, previousSessionId);
+    });
+
+    this.network.on('onSessionUpdated', (sessions, previousSessionId) => {
+      console.log('Sessions updated:', sessions.length, 'sessions');
+      this.ui.updateSessionList(sessions, previousSessionId);
+    });
+
+    this.network.on('onSessionCreated', (sessionId, sessionName) => {
+      console.log('Session created:', sessionId, sessionName);
+      // Will receive connection_accepted next
+    });
+
+    this.network.on('onSessionJoined', (sessionId, sessionName) => {
+      console.log('Joined session:', sessionId, sessionName);
+      // Will receive connection_accepted next
+    });
+
+    this.network.on('onSessionLeft', () => {
+      console.log('Left session');
+      this.ui.showScreen('browser-screen');
+      this.previousPhase = null;
+      this.music.toLobby();
+      // Request updated session list
+      this.network.listSessions();
+    });
+
+    this.network.on('onSessionSettingsUpdated', (settings) => {
+      console.log('Session settings updated:', settings);
+      this.ui.updateSessionSettings(settings);
+    });
+
+    this.network.on('onSessionDeleted', () => {
+      console.log('Session deleted by host');
+      this.ui.showScreen('browser-screen');
+      this.ui.showNotification('🗑️', 'Session was deleted by the host', 'warning');
+      this.previousPhase = null;
+      this.music.toLobby();
+      // Request updated session list
+      this.network.listSessions();
     });
 
     this.network.on('onConnectionAccepted', (playerId, isHost) => {
@@ -130,19 +184,26 @@ export class GameClient {
 
     this.network.on('onPlayerJoined', (playerId, playerName) => {
       this.ui.addSystemMessage(`${playerName} joined the game`);
+      this.ui.showNotification('👋', `<b>${playerName}</b> joined the game`, 'success');
     });
 
     this.network.on('onPlayerLeft', (playerId, playerName) => {
       this.ui.addSystemMessage(`${playerName} left the game`);
+      this.ui.showNotification('👋', `<b>${playerName}</b> left the game`, 'warning');
     });
 
     this.network.on('onBidMade', (playerId, bid) => {
       const playerName = this.gameState?.players.find(p => p.id === playerId)?.name || 'Unknown';
+      const isOwnBid = playerId === this.network.getPlayerId();
       this.ui.addSystemMessage(`${playerName} bid ${bid.quantity}× ${bid.faceValue}s`);
+      if (!isOwnBid) {
+        this.ui.showNotification('🎲', `<b>${playerName}</b> bid ${bid.quantity}× ${bid.faceValue}s`, 'info');
+      }
     });
 
     this.network.on('onDudoCalled', (callerId, callerName) => {
       this.ui.addSystemMessage(`${callerName} called DUDO!`);
+      this.ui.showNotification('🚨', `<b>${callerName}</b> called <b>DUDO!</b>`, 'danger');
     });
 
     this.network.on('onDudoResult', (result) => {
@@ -154,6 +215,7 @@ export class GameClient {
 
     this.network.on('onJontiCalled', (callerId, callerName) => {
       this.ui.addSystemMessage(`${callerName} called JONTI!`);
+      this.ui.showNotification('🎯', `<b>${callerName}</b> called <b>JONTI!</b>`, 'warning');
     });
 
     this.network.on('onJontiResult', (result) => {
@@ -165,6 +227,7 @@ export class GameClient {
 
     this.network.on('onRoundStarted', (roundNumber) => {
       this.ui.addSystemMessage(`Round ${roundNumber} started!`);
+      this.ui.showNotification('🎲', `<b>Round ${roundNumber}</b> started!`, 'info');
       this.renderer.clearAllDice();
     });
 
@@ -201,12 +264,14 @@ export class GameClient {
 
     this.network.on('onGamePaused', (pausedBy) => {
       this.ui.addSystemMessage(`Game paused by ${pausedBy}`);
+      this.ui.showNotification('⏸️', `Game paused by <b>${pausedBy}</b>`, 'warning');
       this.ui.showPausedOverlay();
       // Music transition handled by onGameStateUpdate
     });
 
     this.network.on('onGameResumed', (resumedBy) => {
       this.ui.addSystemMessage(`Game resumed by ${resumedBy}`);
+      this.ui.showNotification('▶️', `Game resumed by <b>${resumedBy}</b>`, 'success');
       this.ui.hidePausedOverlay();
       // Music transition handled by onGameStateUpdate
     });
@@ -215,18 +280,62 @@ export class GameClient {
       console.error(`Error [${code}]: ${message}`);
       this.ui.addSystemMessage(`Error: ${message}`);
     });
+
+    this.network.on('onPlayerKicked', (reason) => {
+      this.ui.showScreen('connection-screen');
+      this.ui.showConnectionError(reason);
+      this.music.toLobby();
+    });
   }
 
   private setupUIEvents(): void {
-    this.ui.onConnect = async (host, port, playerName) => {
+    // Volume control
+    this.ui.onVolumeChange = (volume) => {
+      this.music.setVolume(volume);
+    };
+
+    // Connection - auto-detect host/port from current URL
+    this.ui.onConnect = async (playerName) => {
       try {
+        // Use current page's hostname and port
+        const host = window.location.hostname || 'localhost';
+        const port = parseInt(window.location.port, 10) || 3000;
+        
         await this.network.connect(host, port);
-        this.network.joinGame(playerName);
+        // Register with server and show browser
+        this.network.register(playerName);
+        this.ui.showScreen('browser-screen');
       } catch (error) {
         this.ui.showConnectionError('Failed to connect to server');
       }
     };
 
+    // Session management
+    this.ui.onCreateSession = (sessionName, hostName, settings) => {
+      this.network.createSession(sessionName, hostName, settings);
+    };
+
+    this.ui.onJoinSession = (sessionId, playerName) => {
+      this.network.joinSession(sessionId, playerName);
+    };
+
+    this.ui.onLeaveSession = () => {
+      this.network.leaveSession();
+    };
+
+    this.ui.onRefreshSessions = () => {
+      this.network.listSessions();
+    };
+
+    this.ui.onUpdateSessionSettings = (settings) => {
+      this.network.updateSessionSettings(settings);
+    };
+
+    this.ui.onDeleteSession = () => {
+      this.network.deleteSession();
+    };
+
+    // Game events
     this.ui.onStartGame = () => {
       this.network.startGame();
     };
@@ -265,6 +374,14 @@ export class GameClient {
 
     this.ui.onNewGame = () => {
       this.network.requestNewGame();
+    };
+
+    this.ui.onKickPlayer = (playerId) => {
+      this.network.kickPlayer(playerId);
+    };
+
+    this.ui.onSelectSlot = (slot) => {
+      this.network.selectSlot(slot);
     };
   }
 

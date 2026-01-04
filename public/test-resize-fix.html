@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Panel Resize Fix Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1a1a2e;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: bold;
+      background: linear-gradient(135deg, #4a90d9, #357abd);
+      color: white;
+    }
+
+    /* Top Bar */
+    .top-bar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      height: 50px;
+      background: rgba(30, 30, 50, 0.9);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      color: white;
+    }
+
+    /* Players Panel */
+    .players-panel {
+      transition: max-height 0.1s ease-out, right 0.1s ease-out, width 0.1s ease-out;
+      overflow-y: auto;
+      position: absolute;
+      top: 70px;
+      right: 10px;
+      width: 300px;
+      background: rgba(30, 30, 50, 0.8);
+      border-radius: 12px;
+      padding: 16px;
+      color: white;
+    }
+
+    .player-status {
+      padding: 8px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+
+    /* Private Panel */
+    .private-panel {
+      transition: right 0.1s ease-out;
+      position: absolute;
+      bottom: 80px;
+      left: 10px;
+      right: 320px;
+      background: rgba(30, 30, 50, 0.9);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      gap: 24px;
+      color: white;
+    }
+
+    .dice-section, .cards-section {
+      flex: 1;
+    }
+
+    .dice-section h3, .cards-section h3 {
+      margin-bottom: 12px;
+      color: #aaa;
+    }
+
+    /* Action Panel */
+    .action-panel {
+      transition: right 0.1s ease-out;
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 320px;
+      background: rgba(30, 30, 50, 0.9);
+      border-radius: 12px;
+      padding: 16px;
+      color: white;
+    }
+
+    /* Chat Panel */
+    .chat-panel {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      width: 300px;
+      height: 350px;
+      min-width: 200px;
+      min-height: 150px;
+      max-width: 600px;
+      max-height: 80vh;
+      background: rgba(30, 30, 50, 0.9);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      resize: both;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: default;
+      flex-shrink: 0;
+    }
+
+    .chat-title {
+      font-size: 0.9em;
+      font-weight: bold;
+      color: #4a90d9;
+    }
+
+    .chat-resize-handle {
+      width: 16px;
+      height: 16px;
+      cursor: nw-resize;
+      margin-right: 8px;
+      position: relative;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+
+    .chat-resize-handle:hover {
+      opacity: 1;
+    }
+
+    .chat-resize-handle::before,
+    .chat-resize-handle::after {
+      content: '';
+      position: absolute;
+      background: #4a90d9;
+    }
+
+    .chat-resize-handle::before {
+      width: 10px;
+      height: 2px;
+      top: 7px;
+      left: 0;
+    }
+
+    .chat-resize-handle::after {
+      width: 2px;
+      height: 10px;
+      top: 0;
+      left: 7px;
+    }
+
+    .chat-messages {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 12px;
+      color: white;
+    }
+
+    .chat-message {
+      margin-bottom: 8px;
+      font-size: 0.9em;
+    }
+
+    .chat-message .sender {
+      font-weight: bold;
+      color: #4a90d9;
+    }
+
+    .chat-input-container {
+      flex-shrink: 0;
+      display: flex;
+      padding: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .chat-input-container input {
+      flex: 1;
+      min-width: 0;
+      padding: 8px;
+      border: none;
+      border-radius: 4px 0 0 4px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+    }
+
+    .chat-input-container button {
+      flex-shrink: 0;
+      border-radius: 0 4px 4px 0;
+      padding: 8px 12px;
+    }
+
+    .info {
+      position: absolute;
+      top: 80px;
+      left: 20px;
+      color: white;
+      font-size: 14px;
+      max-width: 400px;
+    }
+
+    .info ul {
+      margin-left: 20px;
+      margin-top: 10px;
+    }
+
+    .info li {
+      margin-bottom: 5px;
+    }
+
+    .size-indicator {
+      position: absolute;
+      bottom: 370px;
+      right: 10px;
+      color: #4a90d9;
+      font-size: 12px;
+      background: rgba(0,0,0,0.5);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <span>🎲 Perudo+ - Resize Fix Test</span>
+  </div>
+
+  <!-- Players Panel -->
+  <div id="players-panel" class="players-panel">
+    <h3 style="margin-bottom: 12px; color: #aaa;">Players</h3>
+    <div class="player-status">Player 1 - 5 dice</div>
+    <div class="player-status">Player 2 - 4 dice</div>
+    <div class="player-status">Player 3 - 5 dice</div>
+    <div class="player-status">Player 4 - 3 dice</div>
+    <div class="player-status">Player 5 - 5 dice</div>
+    <div class="player-status">Player 6 - 2 dice</div>
+  </div>
+
+  <!-- Private Panel -->
+  <div id="private-panel" class="private-panel">
+    <div class="dice-section">
+      <h3>Your Dice</h3>
+      <div>🎲 🎲 🎲 🎲 🎲</div>
+    </div>
+    <div class="cards-section">
+      <h3>Your Cards</h3>
+      <div>🃏 🃏 🃏</div>
+    </div>
+  </div>
+
+  <!-- Action Panel -->
+  <div id="action-panel" class="action-panel">
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <span>Bid Controls:</span>
+      <button class="btn">Make Bid</button>
+      <button class="btn" style="background: #e74c3c;">Call Dudo!</button>
+    </div>
+  </div>
+
+  <!-- Chat Panel -->
+  <div id="chat-panel" class="chat-panel">
+    <div class="chat-header">
+      <div class="chat-resize-handle" id="chat-resize-handle"></div>
+      <span class="chat-title">Chat</span>
+    </div>
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-message"><span class="sender">System:</span> Resize the chat panel to test!</div>
+      <div class="chat-message"><span class="sender">Info:</span> Drag the ↖ icon in the header</div>
+      <div class="chat-message"><span class="sender">Info:</span> Other panels should adjust automatically</div>
+    </div>
+    <div class="chat-input-container">
+      <input type="text" id="chat-input" placeholder="Type a message...">
+      <button class="btn" id="chat-send-btn">Send</button>
+    </div>
+  </div>
+
+  <div id="size-indicator" class="size-indicator">Chat: 300x350</div>
+
+  <div class="info">
+    <h2>Resize Fix Test</h2>
+    <p style="margin-top: 10px;"><strong>Instructions:</strong></p>
+    <ul>
+      <li>Drag the resize icon (↖) in the chat panel header</li>
+      <li>Watch how other panels adjust automatically</li>
+      <li>Private Panel and Action Panel shrink/expand horizontally</li>
+      <li>Players Panel adjusts width and max-height</li>
+    </ul>
+    <p style="margin-top: 10px;"><strong>Expected behavior:</strong></p>
+    <ul>
+      <li>No overlap between chat and other panels</li>
+      <li>Smooth transitions during resize</li>
+      <li>Players panel scrollable if needed</li>
+      <li>Players panel width matches chat panel width</li>
+    </ul>
+  </div>
+
+  <script>
+    // Chat panel resize functionality with panel adjustment
+    (function() {
+      const chatPanel = document.getElementById('chat-panel');
+      const resizeHandle = document.getElementById('chat-resize-handle');
+      const sizeIndicator = document.getElementById('size-indicator');
+      
+      if (!chatPanel || !resizeHandle) return;
+
+      let isResizing = false;
+      let startX = 0;
+      let startY = 0;
+      let startWidth = 0;
+      let startHeight = 0;
+
+      // Function to update other panels based on chat panel size
+      const updatePanelPositions = (chatWidth, chatHeight) => {
+        const playersPanel = document.getElementById('players-panel');
+        const privatePanel = document.getElementById('private-panel');
+        const actionPanel = document.getElementById('action-panel');
+
+        // Calculate the right offset for private and action panels
+        // Chat panel is at right: 10px, so other panels need right: chatWidth + 20px (10px gap)
+        const rightOffset = chatWidth + 20;
+
+        if (privatePanel) {
+          privatePanel.style.right = `${rightOffset}px`;
+        }
+
+        if (actionPanel) {
+          actionPanel.style.right = `${rightOffset}px`;
+        }
+
+        // Update players panel to match chat panel width and avoid vertical overlap
+        if (playersPanel) {
+          // Set players panel width to match chat panel width
+          playersPanel.style.width = `${chatWidth}px`;
+          
+          // Calculate max-height for players panel to avoid overlapping with chat
+          // Chat panel is at bottom: 10px with variable height
+          // Players panel starts at top: 70px
+          // Leave 10px gap between players panel and chat panel
+          const windowHeight = window.innerHeight;
+          const chatTop = windowHeight - 10 - chatHeight; // Chat panel's top position
+          const playersTop = 70;
+          const maxPlayersHeight = chatTop - playersTop - 10; // 10px gap
+          
+          if (maxPlayersHeight > 0) {
+            playersPanel.style.maxHeight = `${maxPlayersHeight}px`;
+            playersPanel.style.overflowY = 'auto';
+          }
+        }
+
+        // Update size indicator
+        if (sizeIndicator) {
+          sizeIndicator.textContent = `Chat: ${Math.round(chatWidth)}x${Math.round(chatHeight)}`;
+          sizeIndicator.style.bottom = `${chatHeight + 20}px`;
+        }
+      };
+
+      // Initialize panel positions based on default chat size
+      const initializePanelPositions = () => {
+        const chatWidth = chatPanel.offsetWidth || 300;
+        const chatHeight = chatPanel.offsetHeight || 350;
+        updatePanelPositions(chatWidth, chatHeight);
+      };
+
+      // Call on initial load
+      setTimeout(initializePanelPositions, 0);
+
+      // Also update on window resize
+      window.addEventListener('resize', () => {
+        const chatWidth = chatPanel.offsetWidth;
+        const chatHeight = chatPanel.offsetHeight;
+        updatePanelPositions(chatWidth, chatHeight);
+      });
+
+      const onMouseDown = (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = chatPanel.offsetWidth;
+        startHeight = chatPanel.offsetHeight;
+        
+        document.body.style.cursor = 'nw-resize';
+        document.body.style.userSelect = 'none';
+        
+        e.preventDefault();
+      };
+
+      const onMouseMove = (e) => {
+        if (!isResizing) return;
+
+        // Calculate the difference (inverted because we're resizing from top-left)
+        const deltaX = startX - e.clientX;
+        const deltaY = startY - e.clientY;
+
+        // Calculate new dimensions
+        const newWidth = Math.min(Math.max(startWidth + deltaX, 200), 600);
+        const newHeight = Math.min(Math.max(startHeight + deltaY, 150), window.innerHeight * 0.8);
+
+        chatPanel.style.width = `${newWidth}px`;
+        chatPanel.style.height = `${newHeight}px`;
+
+        // Update other panels to avoid overlap
+        updatePanelPositions(newWidth, newHeight);
+      };
+
+      const onMouseUp = () => {
+        if (isResizing) {
+          isResizing = false;
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+        }
+      };
+
+      resizeHandle.addEventListener('mousedown', onMouseDown);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    })();
+  </script>
+</body>
+</html>
