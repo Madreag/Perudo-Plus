@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { Die, DieType, PublicPlayerInfo, Bid } from '../shared/types';
+import { DiceGeometryFactory, createDiceMaterials } from './DiceGeometryFactory';
 
 // Dice geometry configurations
 const DICE_COLORS: Record<DieType, number> = {
@@ -21,7 +22,7 @@ const DICE_BOUNDING_RADIUS: Record<DieType, number> = {
   'd4': 0.65,   // TetrahedronGeometry radius 0.6 + buffer
   'd6': 0.60,   // BoxGeometry 0.8 -> half-diagonal ~0.57 + buffer
   'd8': 0.65,   // OctahedronGeometry radius 0.6 + buffer
-  'd10': 0.55   // DodecahedronGeometry radius 0.5 + buffer
+  'd10': 0.65   // Pentagonal trapezohedron - apex at 0.6, ring at 0.54
 };
 
 
@@ -467,62 +468,15 @@ export class GameRenderer {
     this.updateCameraPosition();
   }
 
-  private createDieGeometry(type: DieType): THREE.BufferGeometry {
-    switch (type) {
-      case 'd3':
-        // Triangular prism (3-sided die)
-        return this.createD3Geometry();
-      case 'd4':
-        // Tetrahedron
-        return new THREE.TetrahedronGeometry(0.6);
-      case 'd6':
-        // Cube
-        return new THREE.BoxGeometry(0.8, 0.8, 0.8);
-      case 'd8':
-        // Octahedron
-        return new THREE.OctahedronGeometry(0.6);
-      case 'd10':
-        // Pentagonal trapezohedron (approximated with custom geometry)
-        return this.createD10Geometry();
-      default:
-        return new THREE.BoxGeometry(0.8, 0.8, 0.8);
-    }
-  }
-
-  private createD3Geometry(): THREE.BufferGeometry {
-    // Create a triangular prism for d3
-    const geometry = new THREE.CylinderGeometry(0.5, 0.5, 0.8, 3);
-    return geometry;
-  }
-
-  private createD10Geometry(): THREE.BufferGeometry {
-    // Create a pentagonal trapezohedron approximation
-    const geometry = new THREE.ConeGeometry(0.5, 1, 5);
-    // Duplicate and flip for bottom half
-    const topHalf = geometry.clone();
-    
-    // For simplicity, use a dodecahedron as approximation
-    return new THREE.DodecahedronGeometry(0.5);
-  }
 
   private createDieMesh(die: Die): THREE.Mesh {
-    const geometry = this.createDieGeometry(die.type);
+    // Use the DiceGeometryFactory for proper UV mapping on all dice types
+    const geometry = DiceGeometryFactory.createGeometry(die.type);
+    const bgColor = DICE_COLORS[die.type];
     
-    let mesh: THREE.Mesh;
-    
-    if (die.type === 'd6') {
-      // For d6, create materials for each face with the number on top face
-      const materials = this.createD6Materials(die);
-      mesh = new THREE.Mesh(geometry, materials);
-    } else if (die.type === 'd3') {
-      // For d3, create materials for each face to ensure numbers are visible
-      const materials = this.createD3Materials(die);
-      mesh = new THREE.Mesh(geometry, materials);
-    } else {
-      // For other dice types, use a single material with the number texture
-      const material = this.createDieMaterialWithNumber(die);
-      mesh = new THREE.Mesh(geometry, material);
-    }
+    // Create materials with proper textures for each face
+    const materials = createDiceMaterials(die.type, die.faceValue, bgColor);
+    const mesh = new THREE.Mesh(geometry, materials);
     
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -530,137 +484,6 @@ export class GameRenderer {
     return mesh;
   }
 
-  private createNumberTexture(value: number, bgColor: number, dieType: DieType = 'd6'): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Could not get canvas context');
-
-    // Fill background with dice color
-    ctx.fillStyle = '#' + bgColor.toString(16).padStart(6, '0');
-    ctx.fillRect(0, 0, 128, 128);
-
-    // Adjust font size and position based on die type
-    // For triangular faces (d4, d8), the UV mapping requires different positioning
-    let fontSize = 80;
-    let textX = 64;
-    let textY = 64;
-    let outlineWidth = 4;
-    let textColor = 'white';
-    let outlineColor = 'black';
-
-    if (dieType === 'd4') {
-      // Tetrahedron has triangular faces
-      // The UV mapping places the visible triangle with vertices roughly at
-      // (0,0), (1,0), (0.5,1) - so center the number in the lower-middle area
-      fontSize = 40;
-      textX = 64;
-      textY = 45;
-    } else if (dieType === 'd8') {
-      // Octahedron has triangular faces - similar to d4
-      fontSize = 40;
-      textX = 64;
-      textY = 45;
-    } else if (dieType === 'd3') {
-      // Triangular prism - rectangular faces on sides, triangular on top/bottom
-      // Use larger font and better contrast for visibility
-      fontSize = 72;
-      textX = 64;
-      textY = 64;
-      outlineWidth = 6;
-      // Use dark text with light outline for better contrast on red background
-      textColor = '#1a1a2e';
-      outlineColor = 'white';
-    }
-
-    // Draw number with outline for better visibility
-    ctx.font = `bold ${fontSize}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Draw shadow for extra depth (especially helpful for d3)
-    if (dieType === 'd3') {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillText(value.toString(), textX + 3, textY + 3);
-    }
-    
-    // Draw outline
-    ctx.strokeStyle = outlineColor;
-    ctx.lineWidth = outlineWidth;
-    ctx.strokeText(value.toString(), textX, textY);
-    
-    // Draw fill
-    ctx.fillStyle = textColor;
-    ctx.fillText(value.toString(), textX, textY);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  }
-
-  private createD6Materials(die: Die): THREE.MeshStandardMaterial[] {
-    const baseColor = DICE_COLORS[die.type];
-    const materials: THREE.MeshStandardMaterial[] = [];
-    
-    // D6 face order in Three.js BoxGeometry: +X, -X, +Y, -Y, +Z, -Z
-    // Show the face value on all faces for better visibility
-    const texture = this.createNumberTexture(die.faceValue, baseColor, die.type);
-    
-    for (let i = 0; i < 6; i++) {
-      materials.push(new THREE.MeshStandardMaterial({
-        map: texture.clone(),
-        roughness: 0.3,
-        metalness: 0.1
-      }));
-    }
-    
-    return materials;
-  }
-
-  private createD3Materials(die: Die): THREE.MeshStandardMaterial[] {
-    const baseColor = DICE_COLORS[die.type];
-    const materials: THREE.MeshStandardMaterial[] = [];
-    
-    // CylinderGeometry with 3 radial segments creates a triangular prism
-    // It has 3 material groups: sides (0), top cap (1), bottom cap (2)
-    // We need to apply the number texture to all faces for visibility
-    const texture = this.createNumberTexture(die.faceValue, baseColor, die.type);
-    
-    // Material for the 3 rectangular side faces
-    materials.push(new THREE.MeshStandardMaterial({
-      map: texture.clone(),
-      roughness: 0.3,
-      metalness: 0.1
-    }));
-    
-    // Material for top cap (triangular)
-    materials.push(new THREE.MeshStandardMaterial({
-      map: texture.clone(),
-      roughness: 0.3,
-      metalness: 0.1
-    }));
-    
-    // Material for bottom cap (triangular)
-    materials.push(new THREE.MeshStandardMaterial({
-      map: texture.clone(),
-      roughness: 0.3,
-      metalness: 0.1
-    }));
-    
-    return materials;
-  }
-
-  private createDieMaterialWithNumber(die: Die): THREE.MeshStandardMaterial {
-    const baseColor = DICE_COLORS[die.type];
-    const texture = this.createNumberTexture(die.faceValue, baseColor, die.type);
-    
-    return new THREE.MeshStandardMaterial({
-      map: texture,
-      roughness: 0.3,
-      metalness: 0.1
-    });
-  }
 
   /**
    * Generate random clustered positions for dice, simulating a natural bunch like in Perudo.
